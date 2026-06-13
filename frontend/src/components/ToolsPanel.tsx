@@ -24,13 +24,13 @@ export function ToolsPanel() {
   const entries = Object.entries(toolsHealth);
 
   if (!entries.length) {
-    return <div className="text-sm text-slate-500">Loading tool status from GET /api/tools/status…</div>;
+    return <div className="py-8 text-center text-sm text-slate-500">Loading OSINT tool status…</div>;
   }
 
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="mb-2 text-xs font-semibold uppercase text-slate-400">OSINT Tool Health</h3>
+        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">OSINT Tool Health</h3>
         <ToolsHealthSummary />
       </div>
 
@@ -39,8 +39,8 @@ export function ToolsPanel() {
           <button
             key={tool}
             onClick={() => setSelected(tool)}
-            className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition ${
-              selected === tool ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+            className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition ${
+              selected === tool ? 'border-cyan-500/40 bg-cyan-500/10' : 'border-slate-800/80 bg-slate-900/40 hover:border-slate-600'
             }`}
           >
             <span className="font-mono text-slate-200">{tool}</span>

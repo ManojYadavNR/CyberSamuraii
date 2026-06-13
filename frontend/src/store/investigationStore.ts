@@ -3,6 +3,13 @@ import type { BackendToolHealth, ChatMessage, InvestigationResult, ReviewRecord,
 
 type Tab = 'results' | 'evidence' | 'graph' | 'investigator' | 'review' | 'export' | 'tools';
 
+export interface RecentInvestigation {
+  id: string;
+  query: string;
+  queryType: string;
+  completedAt: string;
+}
+
 interface InvestigationState {
   query: string;
   queryType: string;
@@ -13,14 +20,19 @@ interface InvestigationState {
   phase: string;
   result: InvestigationResult | null;
   selectedClusterId: string | null;
+  selectedEntityId: string | null;
+  drawerOpen: boolean;
   reviews: ReviewRecord[];
   chatMessages: ChatMessage[];
+  recentInvestigations: RecentInvestigation[];
   activeTab: Tab;
   backendHealth: 'ok' | 'down' | 'checking';
   toolsHealth: Record<string, BackendToolHealth>;
   setQuery: (q: string) => void;
   setActiveTab: (tab: Tab) => void;
   selectCluster: (id: string | null) => void;
+  openEntityDrawer: (entityId: string) => void;
+  closeDrawer: () => void;
   reset: () => void;
   setRunning: () => void;
   updateToolProgress: (tool: string, update: Partial<ToolProgress>) => void;
@@ -34,6 +46,22 @@ interface InvestigationState {
   setToolsHealth: (tools: Record<string, BackendToolHealth>) => void;
   updateResult: (partial: Partial<InvestigationResult>) => void;
   loadFromServer: (id: string, query: string, queryType: string, result: InvestigationResult) => void;
+  addRecent: (entry: RecentInvestigation) => void;
+}
+
+const RECENT_KEY = 'socmint_recent_investigations';
+
+function loadRecent(): RecentInvestigation[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecent(list: RecentInvestigation[]) {
+  localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 12)));
 }
 
 export const useInvestigationStore = create<InvestigationState>((set) => ({
@@ -46,8 +74,11 @@ export const useInvestigationStore = create<InvestigationState>((set) => ({
   phase: '',
   result: null,
   selectedClusterId: null,
+  selectedEntityId: null,
+  drawerOpen: false,
   reviews: [],
   chatMessages: [],
+  recentInvestigations: loadRecent(),
   activeTab: 'results',
   backendHealth: 'checking',
   toolsHealth: {},
@@ -55,6 +86,8 @@ export const useInvestigationStore = create<InvestigationState>((set) => ({
   setQuery: (q) => set({ query: q }),
   setActiveTab: (tab) => set({ activeTab: tab }),
   selectCluster: (id) => set({ selectedClusterId: id }),
+  openEntityDrawer: (entityId) => set({ selectedEntityId: entityId, drawerOpen: true }),
+  closeDrawer: () => set({ drawerOpen: false }),
   reset: () =>
     set({
       investigationId: null,
@@ -64,9 +97,19 @@ export const useInvestigationStore = create<InvestigationState>((set) => ({
       phase: '',
       result: null,
       selectedClusterId: null,
+      selectedEntityId: null,
+      drawerOpen: false,
       reviews: [],
     }),
-  setRunning: () => set({ status: 'running', error: null, toolProgress: [], result: null }),
+  setRunning: () =>
+    set({
+      status: 'running',
+      error: null,
+      toolProgress: [],
+      result: null,
+      drawerOpen: false,
+      activeTab: 'results',
+    }),
   updateToolProgress: (tool, update) =>
     set((s) => {
       const existing = s.toolProgress.find((t) => t.tool === tool);
@@ -84,6 +127,7 @@ export const useInvestigationStore = create<InvestigationState>((set) => ({
       result,
       selectedClusterId: firstCluster,
       phase: 'complete',
+      activeTab: 'results',
     });
   },
   setError: (msg) => set({ status: 'error', error: msg }),
@@ -105,6 +149,14 @@ export const useInvestigationStore = create<InvestigationState>((set) => ({
       selectedClusterId: firstCluster,
       phase: 'loaded',
       error: null,
+      activeTab: 'results',
     });
   },
+    addRecent: (entry) =>
+    set((s) => {
+      const filtered = s.recentInvestigations.filter((r) => r.id !== entry.id);
+      const next = [entry, ...filtered].slice(0, 12);
+      saveRecent(next);
+      return { recentInvestigations: next };
+    }),
 }));

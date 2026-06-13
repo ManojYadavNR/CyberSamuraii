@@ -118,19 +118,27 @@ class InvestigationRunner:
             scan_query = normalized or query
             query_normalized = scan_query if scan_query != query else None
 
-        tool_results: list[ToolResult] = []
         for tool in tool_names:
             await emit({"phase": "tool", "tool": tool, "status": "running"})
+
+        async def run_tool(tool: str) -> tuple[str, ToolResult]:
             tr = await self._orchestrator._run_tool_safe(tool, scan_query, default_timeout)
-            tool_results.append(tr)
             await emit({
                 "phase": "tool",
                 "tool": tool,
-                "status": "done",
+                "status": "done" if tr.success else "failed",
                 "success": tr.success,
                 "execution_time_ms": tr.execution_time_ms,
                 "error": tr.error,
             })
+            return tool, tr
+
+        tasks = [asyncio.create_task(run_tool(tool)) for tool in tool_names]
+        completed: dict[str, ToolResult] = {}
+        for task in asyncio.as_completed(tasks):
+            tool, tr = await task
+            completed[tool] = tr
+        tool_results = [completed[tool] for tool in tool_names]
 
         await emit({"phase": "fusion", "status": "running"})
         normalized_results = normalize_tool_results(tool_results)

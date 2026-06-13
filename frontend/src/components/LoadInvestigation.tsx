@@ -25,8 +25,8 @@ export function LoadInvestigation() {
   return (
     <div className="flex items-center gap-2">
       {investigationId && (
-        <span className="hidden font-mono text-xs text-slate-500 sm:inline" title="Current investigation ID">
-          ID: {investigationId.slice(0, 8)}…
+        <span className="hidden font-mono text-[10px] text-slate-500 sm:inline" title="Current investigation ID">
+          {investigationId.slice(0, 8)}…
         </span>
       )}
       <input
@@ -34,13 +34,13 @@ export function LoadInvestigation() {
         value={id}
         onChange={(e) => setId(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && handleLoad()}
-        placeholder="Load investigation ID…"
-        className="w-40 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs outline-none focus:border-blue-500 sm:w-52"
+        placeholder="Investigation ID…"
+        className="w-36 rounded-lg border border-slate-700/80 bg-slate-900/60 px-2.5 py-1.5 text-xs text-slate-200 outline-none transition focus:border-cyan-500/50 sm:w-48"
       />
       <button
         onClick={handleLoad}
         disabled={loading || !id.trim()}
-        className="rounded border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+        className="intel-btn-ghost py-1.5 text-xs disabled:opacity-40"
       >
         {loading ? '…' : 'Load'}
       </button>

@@ -1,17 +1,12 @@
 import { useInvestigationStore } from '../store/investigationStore';
+import { toolFindingsCount } from '../lib/uiHelpers';
+import { Badge } from './ui/Badge';
 
-const STATUS_ICON: Record<string, string> = {
-  pending: '○',
-  running: '◉',
-  done: '✓',
-  failed: '✗',
-};
-
-const STATUS_COLOR: Record<string, string> = {
-  pending: 'text-slate-500',
-  running: 'text-blue-400 animate-pulse',
-  done: 'text-green-400',
-  failed: 'text-red-400',
+const STATUS_BADGE = {
+  pending: { label: 'Pending', variant: 'muted' as const },
+  running: { label: 'Running', variant: 'info' as const },
+  done: { label: 'Completed', variant: 'success' as const },
+  failed: { label: 'Failed', variant: 'danger' as const },
 };
 
 export function ProgressTracker() {
@@ -19,46 +14,81 @@ export function ProgressTracker() {
   const toolProgress = useInvestigationStore((s) => s.toolProgress);
   const phase = useInvestigationStore((s) => s.phase);
   const queryType = useInvestigationStore((s) => s.queryType);
+  const result = useInvestigationStore((s) => s.result);
 
   if (status === 'idle') return null;
 
-  const phases = ['tool', 'fusion', 'correlation', 'graph'];
-  const phaseIndex = phases.indexOf(phase);
+  const phases = [
+    { id: 'tool', label: 'Collection' },
+    { id: 'fusion', label: 'Fusion' },
+    { id: 'correlation', label: 'Correlation' },
+    { id: 'graph', label: 'Graph Intel' },
+  ];
+  const phaseIndex = phases.findIndex((p) => p.id === phase);
 
   return (
-    <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
-      <div className="mb-3 flex items-center justify-between text-xs text-slate-400">
-        <span>Live Progress · {queryType}</span>
-        <span className="capitalize">{status}</span>
+    <div className="intel-panel p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-200">Live Investigation</h3>
+          <p className="text-xs text-slate-500">Type: {queryType} · Phase: {phase || 'initializing'}</p>
+        </div>
+        <Badge variant={status === 'running' ? 'info' : status === 'complete' ? 'success' : status === 'error' ? 'danger' : 'muted'}>
+          {status}
+        </Badge>
       </div>
 
       {toolProgress.length > 0 && (
-        <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {toolProgress.map((t) => (
-            <div key={t.tool} className="flex items-center gap-2 rounded-lg bg-slate-800/80 px-3 py-2 text-sm">
-              <span className={STATUS_COLOR[t.status]}>{STATUS_ICON[t.status]}</span>
-              <span className="flex-1 truncate font-mono text-slate-300">{t.tool}</span>
-              {t.execution_time_ms != null && (
-                <span className="text-xs text-slate-500">{(t.execution_time_ms / 1000).toFixed(1)}s</span>
-              )}
-            </div>
-          ))}
+        <div className="mb-4 grid gap-2 sm:grid-cols-2">
+          {toolProgress.map((t) => {
+            const findings = result ? toolFindingsCount(result, t.tool) : 0;
+            const badge = STATUS_BADGE[t.status];
+            return (
+              <div
+                key={t.tool}
+                className={`flex items-start gap-3 rounded-lg border px-4 py-3 transition ${
+                  t.status === 'running' ? 'border-cyan-500/30 bg-cyan-500/5' :
+                  t.status === 'done' ? 'border-emerald-500/20 bg-emerald-500/5' :
+                  t.status === 'failed' ? 'border-rose-500/20 bg-rose-500/5' :
+                  'border-slate-700/50 bg-slate-800/30'
+                }`}
+              >
+                <span className="mt-0.5 text-lg">
+                  {t.status === 'done' ? '✓' : t.status === 'failed' ? '✗' : t.status === 'running' ? '◉' : '○'}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-sm font-medium text-slate-200">{t.tool}</span>
+                    <Badge variant={badge.variant}>{badge.label}</Badge>
+                  </div>
+                  {t.status === 'done' && findings > 0 && (
+                    <p className="mt-1 text-xs text-emerald-400/90">{findings} account(s) / finding(s)</p>
+                  )}
+                  {t.execution_time_ms != null && t.status === 'done' && (
+                    <p className="mt-0.5 font-mono text-[10px] text-slate-500">{(t.execution_time_ms / 1000).toFixed(1)}s runtime</p>
+                  )}
+                  {t.error && <p className="mt-1 text-xs text-rose-400">{t.error}</p>}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
       <div className="flex gap-1">
-        {['Tools', 'Fusion', 'Correlation', 'Graph'].map((label, i) => (
-          <div
-            key={label}
-            className={`flex-1 rounded py-1 text-center text-xs ${
-              phase === 'complete' || i <= phaseIndex
-                ? 'bg-blue-600/30 text-blue-300'
-                : 'bg-slate-800 text-slate-500'
-            }`}
-          >
-            {label}
-          </div>
-        ))}
+        {phases.map((p, i) => {
+          const active = phase === 'complete' || phase === 'finished' || i <= phaseIndex;
+          return (
+            <div
+              key={p.id}
+              className={`flex-1 rounded-md py-2 text-center text-[10px] font-semibold uppercase tracking-wider transition ${
+                active ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-800/50 text-slate-600'
+              }`}
+            >
+              {p.label}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

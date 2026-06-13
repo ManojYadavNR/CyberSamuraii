@@ -11,7 +11,7 @@ async function loadReviewsForInvestigation(id: string) {
   }
 }
 
-export function startInvestigation(query: string, queryType?: string, timeout = 120): void {
+export function startInvestigation(query: string, queryType?: string, timeout = 180): void {
   const store = useInvestigationStore.getState();
   store.reset();
   store.setQuery(query);
@@ -51,6 +51,12 @@ export function startInvestigation(query: string, queryType?: string, timeout = 
     if (data.phase === 'finished' || data.phase === 'complete') {
       const result = data.result as InvestigationResult;
       s.setComplete(data.investigation_id, result);
+      useInvestigationStore.getState().addRecent({
+        id: data.investigation_id,
+        query: useInvestigationStore.getState().query,
+        queryType: useInvestigationStore.getState().queryType,
+        completedAt: new Date().toISOString(),
+      });
       loadReviewsForInvestigation(data.investigation_id);
       ws.close();
     }
@@ -58,6 +64,13 @@ export function startInvestigation(query: string, queryType?: string, timeout = 
 
   ws.onerror = () => {
     useInvestigationStore.getState().setError('WebSocket connection failed. Is the backend running on port 8000?');
+  };
+
+  ws.onclose = () => {
+    const s = useInvestigationStore.getState();
+    if (s.status === 'running') {
+      s.setError('Investigation connection closed before completion. The server may have timed out — try again.');
+    }
   };
 }
 

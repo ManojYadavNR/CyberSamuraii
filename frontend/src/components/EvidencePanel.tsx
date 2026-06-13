@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { runCorrelate } from '../api/client';
 import { useInvestigationStore } from '../store/investigationStore';
+import { Badge } from './ui/Badge';
+import { EmptyState } from './ui/EmptyState';
 
 export function EvidencePanel() {
   const result = useInvestigationStore((s) => s.result);
@@ -10,7 +12,7 @@ export function EvidencePanel() {
   const [reloading, setReloading] = useState(false);
 
   if (!result) {
-    return <div className="flex h-64 items-center justify-center text-sm text-slate-500">Evidence appears after investigation</div>;
+    return <EmptyState icon="📁" title="Evidence vault" description="Fusion entities, tool hits, and provenance appear after investigation completes." />;
   }
 
   const entities = result.fusion?.deduplicated_entities ?? [];
@@ -46,7 +48,9 @@ export function EvidencePanel() {
           <button
             key={s.id}
             onClick={() => setSection(s.id)}
-            className={`rounded px-3 py-1 text-xs ${section === s.id ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'}`}
+            className={`rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition ${
+              section === s.id ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-slate-800/50 text-slate-500 border border-transparent hover:text-slate-300'
+            }`}
           >
             {s.label}
           </button>
@@ -54,47 +58,47 @@ export function EvidencePanel() {
         <button
           onClick={handleRecorrelate}
           disabled={reloading || !entities.length}
-          className="ml-auto rounded border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40"
-          title="POST /api/intel/correlate"
+          className="intel-btn-ghost ml-auto text-xs disabled:opacity-40"
         >
           {reloading ? 'Re-correlating…' : 'Re-correlate'}
         </button>
       </div>
 
       {section === 'entities' && (
-        <div className="max-h-96 space-y-2 overflow-y-auto">
+        <div className="max-h-[480px] space-y-2 overflow-y-auto">
           {entities.map((ent) => (
-            <div key={ent.entity_id ?? ent.value} className="rounded-lg border border-slate-700 bg-slate-800/40 p-3 text-sm">
-              <div className="flex justify-between">
-                <span className="font-mono text-blue-300">{ent.canonical_value || ent.value}</span>
-                <span className="text-xs text-slate-500">{ent.type}</span>
+            <div key={ent.entity_id ?? ent.value} className="intel-card p-4 text-sm">
+              <div className="flex justify-between gap-3">
+                <span className="font-mono text-cyan-300">{ent.canonical_value || ent.value}</span>
+                <Badge variant="muted">{ent.type}</Badge>
               </div>
-              <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-400">
-                {ent.entity_id && <span>ID: {ent.entity_id.slice(0, 8)}…</span>}
+              <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
+                {ent.entity_id && <span className="font-mono">ID: {ent.entity_id.slice(0, 8)}…</span>}
                 <span>Fusion: {((ent.fusion_score ?? 0) * 100).toFixed(0)}%</span>
-                <span>Sources: {(ent.sources ?? []).join(', ')}</span>
+                <span>Sources: {(ent.sources ?? []).join(', ') || '—'}</span>
               </div>
               {ent.aliases && ent.aliases.length > 0 && (
-                <div className="mt-1 text-xs text-slate-500">Aliases: {ent.aliases.join(', ')}</div>
+                <div className="mt-2 text-xs text-slate-500">Aliases: {ent.aliases.join(', ')}</div>
               )}
             </div>
           ))}
+          {!entities.length && <p className="py-8 text-center text-sm text-slate-500">No fused entities</p>}
         </div>
       )}
 
       {section === 'tools' && (
-        <div className="max-h-96 space-y-3 overflow-y-auto">
+        <div className="max-h-[480px] space-y-3 overflow-y-auto">
           {result.tool_results.map((tr) => (
-            <div key={tr.tool} className="rounded-lg border border-slate-700 p-3 text-sm">
+            <div key={tr.tool} className="intel-card p-4 text-sm">
               <div className="flex justify-between">
-                <span className="font-mono text-slate-200">{tr.tool}</span>
-                <span className={tr.success ? 'text-green-400' : 'text-red-400'}>{tr.success ? 'OK' : 'FAIL'}</span>
+                <span className="font-mono font-medium text-slate-200">{tr.tool}</span>
+                <Badge variant={tr.success ? 'success' : 'danger'}>{tr.success ? 'OK' : 'FAIL'}</Badge>
               </div>
-              {tr.error && <p className="mt-1 text-xs text-red-400">{tr.error}</p>}
+              {tr.error && <p className="mt-2 text-xs text-rose-400">{tr.error}</p>}
               {(tr.data ?? []).length > 0 && (
-                <details className="mt-2">
+                <details className="mt-3">
                   <summary className="cursor-pointer text-xs text-slate-400">{tr.data!.length} raw hit(s)</summary>
-                  <pre className="mt-1 max-h-32 overflow-auto rounded bg-slate-900 p-2 text-xs text-slate-400">
+                  <pre className="mt-2 max-h-32 overflow-auto rounded-lg bg-slate-900/80 p-3 font-mono text-xs text-slate-400">
                     {JSON.stringify(tr.data, null, 2)}
                   </pre>
                 </details>
@@ -102,9 +106,9 @@ export function EvidencePanel() {
             </div>
           ))}
           {result.merged_results && result.merged_results.length > 0 && (
-            <div>
-              <h4 className="mb-1 text-xs font-semibold text-slate-400">Merged Results</h4>
-              <pre className="max-h-40 overflow-auto rounded bg-slate-900 p-2 text-xs text-slate-400">
+            <div className="intel-card p-4">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Merged Results</h4>
+              <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-slate-900/80 p-3 font-mono text-xs text-slate-400">
                 {JSON.stringify(result.merged_results, null, 2)}
               </pre>
             </div>
@@ -118,23 +122,23 @@ export function EvidencePanel() {
           <EmailSection title="Public Profiles" items={result.public_profile_data ?? []} color="blue" />
           <EmailSection title="Investigation Leads" items={result.investigation_leads ?? []} color="amber" />
           {result.scan_summary && (
-            <div className="rounded-lg border border-slate-700 p-3">
-              <h4 className="text-xs font-semibold text-slate-400">Scan Summary</h4>
-              <pre className="mt-1 text-xs text-slate-300">{JSON.stringify(result.scan_summary, null, 2)}</pre>
+            <div className="intel-card p-4">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Scan Summary</h4>
+              <pre className="mt-2 font-mono text-xs text-slate-300">{JSON.stringify(result.scan_summary, null, 2)}</pre>
             </div>
           )}
         </div>
       )}
 
       {section === 'provenance' && (
-        <div className="max-h-96 overflow-y-auto">
-          <pre className="rounded bg-slate-900 p-3 text-xs text-slate-400">
+        <div className="max-h-[480px] overflow-y-auto">
+          <pre className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 font-mono text-xs text-slate-400">
             {JSON.stringify(evidenceMap, null, 2)}
           </pre>
           {result.fusion?.raw_evidence_index && (
-            <div className="mt-3">
-              <h4 className="text-xs font-semibold text-slate-400">Raw Evidence Index</h4>
-              <pre className="mt-1 rounded bg-slate-900 p-2 text-xs text-slate-500">
+            <div className="mt-4">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Raw Evidence Index</h4>
+              <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3 font-mono text-xs text-slate-500">
                 {JSON.stringify(result.fusion.raw_evidence_index, null, 2)}
               </pre>
             </div>
@@ -146,14 +150,14 @@ export function EvidencePanel() {
 }
 
 function EmailSection({ title, items, color }: { title: string; items: Record<string, unknown>[]; color: string }) {
-  const border = color === 'green' ? 'border-green-500/30' : color === 'amber' ? 'border-amber-500/30' : 'border-blue-500/30';
+  const border = color === 'green' ? 'border-emerald-500/30' : color === 'amber' ? 'border-amber-500/30' : 'border-cyan-500/30';
   if (!items.length) return null;
   return (
-    <div className={`rounded-lg border ${border} p-3`}>
-      <h4 className="text-xs font-semibold text-slate-400">{title} ({items.length})</h4>
-      <div className="mt-2 space-y-2">
+    <div className={`intel-card border ${border} p-4`}>
+      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">{title} ({items.length})</h4>
+      <div className="mt-3 space-y-2">
         {items.map((item, i) => (
-          <pre key={i} className="rounded bg-slate-900 p-2 text-xs text-slate-300">{JSON.stringify(item, null, 2)}</pre>
+          <pre key={i} className="rounded-lg bg-slate-900/80 p-3 font-mono text-xs text-slate-300">{JSON.stringify(item, null, 2)}</pre>
         ))}
       </div>
     </div>

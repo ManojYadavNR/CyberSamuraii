@@ -2,24 +2,53 @@
 
 @theme {
   --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
-  --color-ink: #0f172a;
-  --color-panel: #1e293b;
-  --color-border: #334155;
-  --color-accent: #3b82f6;
-  --color-success: #22c55e;
-  --color-warn: #f59e0b;
-  --color-danger: #ef4444;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
 }
 
 body {
-  @apply bg-slate-950 text-slate-100 antialiased;
+  @apply bg-[#070b14] text-slate-100 antialiased;
   font-family: var(--font-sans);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(6, 182, 212, 0.08), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(59, 130, 246, 0.05), transparent);
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+.intel-card {
+  @apply rounded-xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-sm shadow-lg shadow-black/20;
 }
-::-webkit-scrollbar-thumb {
-  @apply bg-slate-600 rounded-full;
+
+.intel-panel {
+  @apply rounded-xl border border-slate-800/60 bg-[#0c1220]/90 backdrop-blur-md;
 }
+
+.intel-input {
+  @apply rounded-lg border border-slate-700/80 bg-slate-900/80 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 outline-none transition focus:border-cyan-500/60 focus:ring-1 focus:ring-cyan-500/20;
+}
+
+.intel-btn-primary {
+  @apply rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-900/30 transition hover:from-cyan-500 hover:to-blue-500 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+.intel-btn-ghost {
+  @apply rounded-lg border border-slate-700/80 bg-slate-800/40 px-4 py-2 text-sm text-slate-300 transition hover:border-slate-600 hover:bg-slate-800/80;
+}
+
+.intel-tab-active {
+  @apply border-b-2 border-cyan-400 text-cyan-300 bg-cyan-500/5;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-thumb { @apply rounded-full bg-slate-700; }
+::-webkit-scrollbar-track { @apply bg-transparent; }
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.drawer-enter { animation: slide-in-right 0.25s ease-out; }
