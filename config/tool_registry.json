@@ -1,0 +1,64 @@
+{
+  "sherlock": {
+    "path": "./external_tools/sherlock",
+    "executable": "./external_tools/sherlock/sherlock_project/sherlock.py",
+    "installed": true,
+    "type": "username_search"
+  },
+  "maigret": {
+    "path": null,
+    "executable": "maigret",
+    "installed": true,
+    "type": "username_search"
+  },
+  "whatsmyname": {
+    "path": "./external_tools/whatsmyname",
+    "executable": null,
+    "installed": true,
+    "type": "username_search"
+  },
+  "social_analyzer": {
+    "path": "./external_tools/SocialAnalyzer",
+    "executable": "./external_tools/SocialAnalyzer/app.py",
+    "installed": true,
+    "type": "username_search"
+  },
+  "holehe": {
+    "path": null,
+    "executable": "holehe",
+    "installed": true,
+    "type": "email_intel"
+  },
+  "theharvester": {
+    "path": "./external_tools/theHarvester",
+    "executable": "./external_tools/theHarvester/bin/theHarvester",
+    "installed": true,
+    "type": "multi"
+  },
+  "spiderfoot": {
+    "path": "./external_tools/spiderfoot",
+    "executable": "./external_tools/spiderfoot/sf.py",
+    "installed": true,
+    "type": "multi"
+  },
+  "recon_ng": {
+    "path": "./external_tools/recon-ng",
+    "executable": "./external_tools/recon-ng/recon-ng",
+    "installed": true,
+    "type": "domain_intel"
+  },
+  "shodan": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "type": "infra_intel",
+    "requires_api_key": true
+  },
+  "image_intel": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  }
+}
