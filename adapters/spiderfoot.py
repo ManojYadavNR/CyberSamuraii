@@ -1,4 +1,5 @@
 import json
+import sys
 
 from adapters.base import BaseAdapter
 from schemas.common import ToolResult
@@ -33,7 +34,7 @@ class SpiderFootAdapter(BaseAdapter):
         module_str = ",".join(modules)
 
         cmd = [
-            "python3",
+            sys.executable,
             str(tool_path),
             "-s",
             query,
@@ -87,6 +88,15 @@ class SpiderFootAdapter(BaseAdapter):
             )
 
         success = len(results) > 0 or returncode == 0
+        err_text = (stderr or stdout or "").strip()
+        if not success and "ModuleNotFoundError" in err_text:
+            missing = "cherrypy" if "cherrypy" in err_text.lower() else "dependency"
+            return ToolResult(
+                tool=self.name,
+                success=False,
+                error=f"SpiderFoot missing Python package '{missing}'. Run: pip install cherrypy cherrypy-cors Mako",
+                raw_output=err_text[:1500],
+            )
         return ToolResult(
             tool=self.name,
             success=success,

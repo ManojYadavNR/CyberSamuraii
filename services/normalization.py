@@ -6,7 +6,7 @@ TOOL_BASE_WEIGHTS: dict[str, float] = {
     "sherlock": 1.0,
     "maigret": 1.0,
     "social_analyzer": 0.8,
-    "whatsmyname": 0.2,
+    "platform_probe": 0.95,
     "holehe": 0.9,
 }
 

@@ -72,25 +72,7 @@ install_maigret() {
     fi
 }
 
-# ── 3. WhatsMyName dataset ───────────────────────────────────────────────────
-install_whatsmyname() {
-    log "Installing WhatsMyName dataset..."
-    local dir="$EXTERNAL_TOOLS/whatsmyname"
-    if [ ! -d "$dir/.git" ]; then
-        git clone --depth 1 https://github.com/WebBreacher/WhatsMyName.git "$dir"
-    else
-        git -C "$dir" pull --ff-only || warn "WhatsMyName pull failed, using existing."
-    fi
-    if [ -f "$dir/wmn-data.json" ] || [ -f "$dir/data/wmn-data.json" ]; then
-        update_registry "whatsmyname" "true"
-        log "WhatsMyName dataset installed."
-    else
-        update_registry "whatsmyname" "false"
-        warn "WhatsMyName dataset not found."
-    fi
-}
-
-# ── 4. Social Analyzer ─────────────────────────────────────────────────────
+# ── 3. Social Analyzer ─────────────────────────────────────────────────────
 install_social_analyzer() {
     log "Installing Social Analyzer..."
     local dir="$EXTERNAL_TOOLS/SocialAnalyzer"
@@ -217,18 +199,83 @@ install_shodan() {
     fi
 }
 
+# ── 10. Image Intelligence Engine ─────────────────────────────────────────────
+install_image_intelligence() {
+    log "Installing Image Intelligence Engine dependencies..."
+    if command -v apt-get &>/dev/null; then
+        if [ -x "$SCRIPT_DIR/install_image_system_deps.sh" ]; then
+            bash "$SCRIPT_DIR/install_image_system_deps.sh" 2>/dev/null || warn "Run: sudo bash scripts/install_image_system_deps.sh for tesseract/exiftool"
+        fi
+    fi
+    pip install insightface onnxruntime deepface facenet-pytorch torch torchvision ultralytics \
+        easyocr paddlepaddle paddleocr pytesseract transformers timm hachoir ftfy regex -q
+    python3 -c "
+from importlib import import_module
+mods = ['insightface','deepface','facenet_pytorch','ultralytics','easyocr','paddleocr','pytesseract','transformers','hachoir','cv2','imagehash']
+failed = []
+for m in mods:
+    try:
+        import_module(m)
+    except Exception as e:
+        failed.append(f'{m}:{e}')
+if failed:
+    raise SystemExit('Missing image intelligence modules: ' + ', '.join(failed))
+print('Image intelligence modules OK')
+"
+    for tool in pillow exiftool hachoir insightface deepface facenet opencv_face tesseract easyocr paddleocr yolo grounding_dino clip; do
+        update_registry "$tool" "true"
+    done
+    log "Image Intelligence Engine dependencies installed."
+}
+
+# ── 11. Extended OSINT catalog tools ─────────────────────────────────────────
+install_extended_osint() {
+    log "Installing extended OSINT catalog tools..."
+    mkdir -p "$EXTERNAL_TOOLS/bin"
+
+    pip install -q -r "$EXTERNAL_TOOLS/blackbird/requirements.txt" 2>/dev/null || true
+    pip install -q -e "$EXTERNAL_TOOLS/Nexfil" --no-deps 2>/dev/null || true
+    pip install -q aiohttp tldextract undetected_chromedriver unidecode autoslot rich-argparse loguru netaddr httpx python-whois 2>/dev/null || true
+    pip install -q -e "$EXTERNAL_TOOLS/GHunt" 2>/dev/null || pip install -q geopy httpx imagehash rich beautifultable alive-progress autoslot humanize inflection jsonpickle rich-argparse dnspython 2>/dev/null || true
+    pip install -q -e "$EXTERNAL_TOOLS/GitFive" --no-deps 2>/dev/null || true
+
+    download_bin() {
+        local name="$1" url="$2"
+        local dest="$EXTERNAL_TOOLS/bin/$name"
+        if [ -x "$dest" ]; then return 0; fi
+        local tmp
+        tmp=$(mktemp -d)
+        curl -fsSL "$url" -o "$tmp/pkg" || { warn "Download failed: $name"; rm -rf "$tmp"; return 1; }
+        if file "$tmp/pkg" | grep -q Zip; then unzip -qo "$tmp/pkg" -d "$tmp"; else tar -xzf "$tmp/pkg" -C "$tmp" 2>/dev/null || tar -xf "$tmp/pkg" -C "$tmp"; fi
+        local found
+        found=$(find "$tmp" -maxdepth 3 -type f -name "$name" | head -1)
+        if [ -n "$found" ]; then cp "$found" "$dest" && chmod +x "$dest"; fi
+        rm -rf "$tmp"
+    }
+
+    download_bin phoneinfoga "https://github.com/sundowndev/phoneinfoga/releases/download/v2.11.0/phoneinfoga_Linux_x86_64.tar.gz" || true
+    download_bin subfinder "https://github.com/projectdiscovery/subfinder/releases/download/v2.8.0/subfinder_2.8.0_linux_amd64.zip" || true
+    download_bin amass "https://github.com/owasp-amass/amass/releases/download/v4.2.0/amass_Linux_amd64.zip" || true
+
+    for tool in blackbird nexfil gitfive ghunt gravatar phoneinfoga subfinder amass dnsrecon whois; do
+        update_registry "$tool" "true"
+    done
+    log "Extended OSINT catalog tools installed."
+}
+
 # ── Run all installers ───────────────────────────────────────────────────────
 log "Starting OSINT tool installation..."
 log "Project root: $PROJECT_ROOT"
 
 install_sherlock
 install_maigret
-install_whatsmyname
 install_social_analyzer
 install_holehe
 install_theharvester
 install_spiderfoot
 install_recon_ng
 install_shodan
+install_image_intelligence
+install_extended_osint
 
 log "Installation complete. Run scripts/verify_tools.sh to validate."

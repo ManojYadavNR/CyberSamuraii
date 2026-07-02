@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import tempfile
 from functools import lru_cache
 from typing import Any
@@ -107,7 +108,9 @@ def _opencv_orb_similarity(img_a: bytes, img_b: bytes) -> tuple[float, str]:
     orb = cv2.ORB_create(500)
     kp1, des1 = orb.detectAndCompute(mat_a, None)
     kp2, des2 = orb.detectAndCompute(mat_b, None)
-    if des1 is None or des2 is None or len(des1) < 2 or len(des2) < 2:
+    if des1 is None or des2 is None:
+        return 0.0, "insufficient ORB features"
+    if len(des1) < 2 or len(des2) < 2:
         return 0.0, "insufficient ORB features"
 
     bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
@@ -143,7 +146,7 @@ def _face_embedding_similarity(img_a: bytes, img_b: bytes) -> tuple[float, str]:
 
     faces_a = app.get(mat_a)
     faces_b = app.get(mat_b)
-    if not faces_a or not faces_b:
+    if len(faces_a) == 0 or len(faces_b) == 0:
         return 0.0, "no faces detected"
 
     emb_a = faces_a[0].embedding
@@ -152,7 +155,12 @@ def _face_embedding_similarity(img_a: bytes, img_b: bytes) -> tuple[float, str]:
     return round(max(cosine, 0.0), 4), f"insightface_cosine={cosine:.3f}"
 
 
-async def image_similarity(source_a: str | None, source_b: str | None) -> tuple[float, str]:
+async def image_similarity(
+    source_a: str | None,
+    source_b: str | None,
+    *,
+    use_face_embedding: bool = False,
+) -> tuple[float, str]:
     if not source_a or not source_b:
         return 0.0, "missing image source"
 
@@ -184,7 +192,7 @@ async def image_similarity(source_a: str | None, source_b: str | None) -> tuple[
         except Exception as exc:
             details.append(f"opencv_error={exc}")
 
-    if insightface_available():
+    if use_face_embedding and insightface_available():
         try:
             s, d = _face_embedding_similarity(bytes_a, bytes_b)
             if s > 0:
@@ -197,3 +205,28 @@ async def image_similarity(source_a: str | None, source_b: str | None) -> tuple[
         return 0.0, "; ".join(details) or "no image backends available"
 
     return round(min(max(scores), 1.0), 4), "; ".join(details)
+
+
+async def avatar_hash_similarity(
+    source_a: str | None,
+    source_b: str | None,
+) -> tuple[float, str]:
+    """Perceptual-hash only — used for username investigations (lower weight than face embedding)."""
+    if not source_a or not source_b:
+        return 0.0, "missing avatar source"
+    if source_a == source_b:
+        return 1.0, "same avatar URL"
+
+    if not imagehash_available():
+        return 0.0, "perceptual_hash unavailable"
+
+    bytes_a = await _load_image_bytes(source_a)
+    bytes_b = await _load_image_bytes(source_b)
+    if not bytes_a or not bytes_b:
+        return 0.0, "avatar load failed"
+
+    try:
+        score, detail = _perceptual_hash_similarity(bytes_a, bytes_b)
+        return score, f"method=perceptual_hash_avatar, {detail}"
+    except Exception as exc:
+        return 0.0, f"perceptual_hash_error={exc}"

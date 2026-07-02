@@ -1,0 +1,85 @@
+{
+  "default_password": "Socmint@Demo2026!",
+  "users": [
+    {
+      "username": "cid_director",
+      "name": "CID Director",
+      "email": "director@socmint.local",
+      "role": "CID_DIRECTOR",
+      "department": "CID",
+      "designation": "Director"
+    },
+    {
+      "username": "sp_officer",
+      "name": "SP Officer",
+      "email": "sp@socmint.local",
+      "role": "SP",
+      "department": "CID",
+      "designation": "Superintendent of Police"
+    },
+    {
+      "username": "dsp_officer",
+      "name": "DSP Officer",
+      "email": "dsp@socmint.local",
+      "role": "DSP",
+      "department": "CID",
+      "designation": "Deputy Superintendent"
+    },
+    {
+      "username": "inspector1",
+      "name": "Inspector One",
+      "email": "inspector@socmint.local",
+      "role": "INSPECTOR",
+      "department": "CID",
+      "designation": "Inspector"
+    },
+    {
+      "username": "sub_inspector1",
+      "name": "Sub Inspector One",
+      "email": "subinspector@socmint.local",
+      "role": "SUB_INSPECTOR",
+      "department": "CID",
+      "designation": "Sub Inspector"
+    },
+    {
+      "username": "analyst1",
+      "name": "Analyst One",
+      "email": "analyst@socmint.local",
+      "role": "ANALYST",
+      "department": "Cyber Cell",
+      "designation": "OSINT Analyst"
+    },
+    {
+      "username": "intel_officer",
+      "name": "Intelligence Officer",
+      "email": "intel@socmint.local",
+      "role": "INTELLIGENCE_OFFICER",
+      "department": "Intelligence",
+      "designation": "Intelligence Officer"
+    },
+    {
+      "username": "forensics_officer",
+      "name": "Forensics Officer",
+      "email": "forensics@socmint.local",
+      "role": "FORENSICS_OFFICER",
+      "department": "Forensics",
+      "designation": "Digital Forensics Officer"
+    },
+    {
+      "username": "viewer1",
+      "name": "Read Only Viewer",
+      "email": "viewer@socmint.local",
+      "role": "VIEWER",
+      "department": "CID",
+      "designation": "Viewer"
+    },
+    {
+      "username": "auditor1",
+      "name": "Compliance Auditor",
+      "email": "auditor@socmint.local",
+      "role": "AUDITOR",
+      "department": "Audit",
+      "designation": "Auditor"
+    }
+  ]
+}

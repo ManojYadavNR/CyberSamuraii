@@ -1,0 +1,6 @@
+{
+  "agencies": [
+    {"agency_code": "CID-HQ", "agency_name": "CID Headquarters", "level": "state", "region": "State"},
+    {"agency_code": "CYBER-CELL", "agency_name": "Cyber Crime Cell", "level": "district", "region": "District"}
+  ]
+}

@@ -1,105 +1,329 @@
-"""Rule-based investigation copilot — answers from live investigation data."""
+"""Investigation copilot — fast Qwen via Ollama with streaming + cached context."""
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
+import time
+from collections.abc import AsyncIterator
 from typing import Any
 
+from services.brief_indexer import get_brief
+from services.copilot_context import (
+    PACK_VERSION,
+    build_copilot_llm_context,
+    build_raw_investigation_pack,
+    get_raw_full,
+)
+from services.copilot_llm import (
+    chat_with_qwen,
+    context_max_chars,
+    copilot_model,
+    ollama_available,
+    prewarm_copilot_model,
+    stream_chat_with_qwen,
+)
+from services.copilot_store import append_chat_turn, load_copilot_pack
+from services.investigation_brief import brief_to_text
 
-def _linked_accounts(result: dict[str, Any]) -> list[str]:
-    refs: list[str] = []
-    for cluster in result.get("correlation", {}).get("clusters", []):
-        refs.extend(cluster.get("linked_account_refs", []))
-        for acct in cluster.get("linked_accounts", []):
-            ref = f"{acct.get('platform', 'unknown')}:{acct.get('handle', '')}"
-            if ref not in refs:
-                refs.append(ref)
-    return refs
+logger = logging.getLogger(__name__)
+
+# In-memory cache — avoids rewriting multi-MB packs to disk on every chat message.
+_SESSION_CACHE: dict[str, dict[str, Any]] = {}
+_CACHE_TTL_SEC = 3600
+
+_LLM_OFFLINE_MSG = (
+    f"Copilot requires {copilot_model()} via Ollama.\n\n"
+    f"  ollama pull {copilot_model()}\n  ollama serve\n\n"
+    f"Endpoint: {os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434')}"
+)
 
 
-def _summarize_suspicious(result: dict[str, Any]) -> str:
-    networks = result.get("graph", {}).get("suspicious_networks", [])
-    if not networks:
-        return "No suspicious networks flagged. Review correlation confidence and explainability for manual assessment."
-    lines = []
-    for net in networks[:5]:
-        lines.append(
-            f"• {net.get('network_type', 'unknown').replace('_', ' ').title()} "
-            f"({net.get('confidence', 0) * 100:.0f}% confidence): "
-            f"{'; '.join(net.get('indicators', [])[:2])}"
+def _build_brief_in_memory(raw_full: dict[str, Any], *, query: str = "") -> dict[str, Any]:
+    from services.investigation_brief import empty_brief, finalize_brief_from_result, merge_brief_tool
+
+    brief = empty_brief(query=query or str(raw_full.get("query") or ""))
+    for tr in raw_full.get("tool_results") or []:
+        if isinstance(tr, dict):
+            merge_brief_tool(brief, tr)
+    finalize_brief_from_result(brief, raw_full)
+    return brief
+
+
+def _cache_session(investigation_id: str, *, brief: dict[str, Any], llm_context: str) -> None:
+    if not investigation_id:
+        return
+    _SESSION_CACHE[investigation_id] = {
+        "brief": brief,
+        "llm_context": llm_context,
+        "ts": time.time(),
+    }
+
+
+def _get_cached_session(investigation_id: str) -> dict[str, Any] | None:
+    if not investigation_id:
+        return None
+    entry = _SESSION_CACHE.get(investigation_id)
+    if not entry:
+        return None
+    if time.time() - float(entry.get("ts") or 0) > _CACHE_TTL_SEC:
+        _SESSION_CACHE.pop(investigation_id, None)
+        return None
+    return entry
+
+
+async def _resolve_brief_and_context(
+    investigation_id: str,
+    raw_full: dict[str, Any],
+    *,
+    query: str,
+    message: str,
+    pack: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, str]:
+    limit = context_max_chars()
+    cached = _get_cached_session(investigation_id)
+    if cached:
+        brief = cached.get("brief")
+        ctx = str(cached.get("llm_context") or "")
+        if ctx:
+            return (brief if isinstance(brief, dict) else None), ctx[:limit]
+
+    brief: dict[str, Any] | None = None
+    if pack:
+        brief = pack.get("investigation_brief")
+    if not brief and investigation_id:
+        brief = get_brief(investigation_id)
+    if not brief and raw_full:
+        brief = await asyncio.to_thread(_build_brief_in_memory, raw_full, query=query)
+
+    llm_ctx = await asyncio.to_thread(build_copilot_llm_context, raw_full, max_chars=limit)
+    if isinstance(brief, dict):
+        _cache_session(investigation_id, brief=brief, llm_context=llm_ctx)
+    return brief, llm_ctx
+
+
+async def _prepare_llm_session(
+    message: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    investigation_id = str(context.get("investigation_id") or "")
+    result = context.get("result") or {}
+    query = str(context.get("query") or result.get("query") or "")
+
+    pack = load_copilot_pack(investigation_id) if investigation_id else None
+    raw_full = get_raw_full(pack) if pack else result
+    if not raw_full:
+        raw_full = result
+
+    if not raw_full and not result:
+        return {"error": "no_data", "answer": "No investigation data available. Complete an investigation first."}
+
+    asyncio.create_task(prewarm_copilot_model(force=True))
+
+    online_task = asyncio.create_task(ollama_available())
+    context_task = asyncio.create_task(
+        _resolve_brief_and_context(
+            investigation_id,
+            raw_full or result,
+            query=query,
+            message=message,
+            pack=pack,
         )
-    return "\n".join(lines)
+    )
+    online, (brief, context_json) = await asyncio.gather(online_task, context_task)
+    if not online:
+        return {"error": "offline", "answer": _LLM_OFFLINE_MSG, "investigation_id": investigation_id}
+
+    history = list((pack or {}).get("chat_history") or [])
+
+    return {
+        "investigation_id": investigation_id,
+        "query": query,
+        "pack": pack,
+        "brief": brief,
+        "context_json": context_json,
+        "history": history,
+    }
+
+
+async def answer_copilot_async(message: str, context: dict[str, Any]) -> dict[str, Any]:
+    session = await _prepare_llm_session(message, context)
+
+    if session.get("error") == "no_data":
+        return {"answer": session["answer"], "data": {}, "engine": "none"}
+
+    if session.get("error") == "offline":
+        return {
+            "answer": session["answer"],
+            "data": {"investigation_id": session.get("investigation_id")},
+            "engine": "offline",
+        }
+
+    investigation_id = session.get("investigation_id", "")
+    try:
+        answer = await chat_with_qwen(
+            message,
+            context_json=session["context_json"],
+            chat_history=session["history"],
+        )
+    except Exception as exc:
+        logger.warning("Copilot LLM failed: %r", exc)
+        return {
+            "answer": f"Copilot LLM request failed: {exc!r}\n\n{_LLM_OFFLINE_MSG}",
+            "data": {"investigation_id": investigation_id, "error": repr(exc)},
+            "engine": "error",
+        }
+
+    if investigation_id:
+        asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "user", message))
+        asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "assistant", answer))
+
+    brief = session.get("brief")
+    return {
+        "answer": answer,
+        "data": {
+            "investigation_id": investigation_id,
+            "model": copilot_model(),
+            "mode": "llm",
+            "brief_status": brief.get("status") if isinstance(brief, dict) else None,
+            "pack_version": (session.get("pack") or {}).get("pack_version", PACK_VERSION),
+        },
+        "engine": "qwen",
+    }
+
+
+async def stream_copilot_events(message: str, context: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+    """Yield SSE events: status, token chunks, done, or error."""
+    yield {"status": "thinking"}
+
+    session = await _prepare_llm_session(message, context)
+
+    if session.get("error"):
+        yield {"error": session["answer"], "engine": session.get("error")}
+        yield {"done": True, "answer": session["answer"]}
+        return
+
+    investigation_id = str(session.get("investigation_id") or "")
+    parts: list[str] = []
+
+    try:
+        async for token in stream_chat_with_qwen(
+            message,
+            context_json=session["context_json"],
+            chat_history=session["history"],
+        ):
+            parts.append(token)
+            yield {"token": token}
+
+        answer = "".join(parts).strip()
+        if not answer:
+            raise RuntimeError("Empty response from Ollama stream")
+
+        if investigation_id:
+            asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "user", message))
+            asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "assistant", answer))
+
+        brief = session.get("brief")
+        yield {
+            "done": True,
+            "answer": answer,
+            "engine": "qwen",
+            "mode": "llm_stream",
+            "model": copilot_model(),
+            "brief_status": brief.get("status") if isinstance(brief, dict) else None,
+        }
+    except Exception as exc:
+        logger.warning("Copilot stream failed: %r — trying non-stream fallback", exc)
+        try:
+            answer = await chat_with_qwen(
+                message,
+                context_json=session["context_json"],
+                chat_history=session["history"],
+            )
+            if parts:
+                answer = "".join(parts) + answer
+            if investigation_id:
+                asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "user", message))
+                asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "assistant", answer))
+            yield {"token": answer[len("".join(parts)):] if parts else answer}
+            yield {"done": True, "answer": answer, "engine": "qwen", "mode": "llm_fallback"}
+        except Exception as exc2:
+            logger.warning("Copilot fallback also failed: %r", exc2)
+            partial = "".join(parts).strip()
+            yield {
+                "error": str(exc2),
+                "engine": "error",
+                "done": True,
+                "answer": partial or f"Copilot failed: {exc2}",
+            }
 
 
 def answer_copilot(message: str, context: dict[str, Any]) -> dict[str, Any]:
-    msg = message.lower().strip()
-    result = context.get("result", {})
-    query = context.get("query", "")
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
 
-    if any(k in msg for k in ("linked account", "linked accounts", "show accounts", "accounts")):
-        accounts = _linked_accounts(result)
-        if not accounts:
-            return {
-                "answer": "No linked accounts found yet. Run an investigation or check if tools returned results.",
-                "data": {"accounts": []},
-            }
-        return {
-            "answer": f"Found {len(accounts)} linked account(s):\n" + "\n".join(f"• {a}" for a in accounts[:30]),
-            "data": {"accounts": accounts},
-        }
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, answer_copilot_async(message, context))
+                return future.result(timeout=120)
+    except RuntimeError:
+        pass
+    return asyncio.run(answer_copilot_async(message, context))
 
-    if any(k in msg for k in ("summarize", "summary", "suspect activity", "activity")):
-        clusters = result.get("correlation", {}).get("clusters", [])
-        fusion_score = result.get("fusion", {}).get("fusion_score", 0)
-        tools_ok = result.get("tools_succeeded", 0)
-        tools_fail = result.get("tools_failed", 0)
-        answer = (
-            f"Investigation summary for '{query}':\n"
-            f"• Fusion confidence: {fusion_score * 100:.1f}%\n"
-            f"• Identity clusters: {len(clusters)}\n"
-            f"• Tools succeeded/failed: {tools_ok}/{tools_fail}\n"
-            f"• Linked accounts: {len(_linked_accounts(result))}"
-        )
-        return {"answer": answer, "data": {"clusters": len(clusters)}}
 
-    if any(k in msg for k in ("why suspicious", "why is this", "suspicious cluster", "why cluster")):
-        explain = []
-        for cluster in result.get("correlation", {}).get("clusters", []):
-            explain.extend(cluster.get("explainability", [])[:5])
-        suspicious = _summarize_suspicious(result)
-        answer = "Explainability:\n" + ("\n".join(f"• {e}" for e in explain[:8]) if explain else "No explainability data.")
-        answer += f"\n\nSuspicious network analysis:\n{suspicious}"
-        return {"answer": answer, "data": {"explainability": explain}}
+def build_copilot_pack_from_result(
+    investigation_id: str,
+    result: dict[str, Any],
+    *,
+    query: str = "",
+) -> dict[str, Any]:
+    from services.brief_indexer import finalize_investigation_brief
+    from services.copilot_store import ensure_copilot_pack, load_copilot_pack, save_copilot_pack
 
-    if any(k in msg for k in ("evidence", "signals", "confidence")):
-        lines = []
-        for cluster in result.get("correlation", {}).get("clusters", [])[:3]:
-            lines.append(f"Cluster {cluster.get('account_cluster_id')} — {cluster.get('confidence_score', 0):.1f}%")
-            for ev in cluster.get("evidence", []):
-                lines.append(f"  • {ev.get('type')}: {ev.get('score', 0):.2f} (weight {ev.get('weight', 0):.2f})")
-        return {
-            "answer": "\n".join(lines) if lines else "No evidence signals available.",
-            "data": {"evidence_lines": lines},
-        }
+    ensure_copilot_pack(investigation_id, result, query=query)
+    finalize_investigation_brief(investigation_id, result, query=query)
 
-    if any(k in msg for k in ("graph", "network", "relationship")):
-        graph = result.get("graph", {})
-        return {
-            "answer": (
-                f"Graph: {graph.get('node_count', 0)} nodes, {graph.get('edge_count', 0)} edges. "
-                f"Communities: {len(graph.get('clusters', []))}. "
-                f"Suspicious networks: {len(graph.get('suspicious_networks', []))}."
-            ),
-            "data": graph,
-        }
+    pack = load_copilot_pack(investigation_id) or {}
+    brief = pack.get("investigation_brief")
+    if isinstance(brief, dict):
+        llm_ctx = build_copilot_llm_context(result, max_chars=context_max_chars())
+        pack["llm_context_cached"] = llm_ctx
+        _cache_session(investigation_id, brief=brief, llm_context=llm_ctx)
+        save_copilot_pack(pack)
 
-    return {
-        "answer": (
-            "I can help with:\n"
-            "• 'show linked accounts'\n"
-            "• 'summarize suspect activity'\n"
-            "• 'why is this cluster suspicious?'\n"
-            "• 'show evidence breakdown'\n"
-            "• 'show graph summary'"
-        ),
-        "data": {},
-    }
+    return pack
+
+
+def schedule_copilot_pack_build(
+    investigation_id: str,
+    result: dict[str, Any],
+    *,
+    query: str = "",
+) -> None:
+    async def _run() -> None:
+        await asyncio.to_thread(build_copilot_pack_from_result, investigation_id, result, query=query)
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_run())
+    except RuntimeError:
+        build_copilot_pack_from_result(investigation_id, result, query=query)
+
+
+def warm_session_from_result(investigation_id: str, result: dict[str, Any], *, query: str = "") -> None:
+    """Pre-cache brief + LLM context when investigation completes (no disk wait on first chat)."""
+    if not investigation_id or not result:
+        return
+    try:
+        brief = _build_brief_in_memory(result, query=query)
+        llm_ctx = build_copilot_llm_context(result, max_chars=context_max_chars())
+        _cache_session(investigation_id, brief=brief, llm_context=llm_ctx)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(prewarm_copilot_model(force=True))
+        except RuntimeError:
+            pass
+    except Exception as exc:
+        logger.warning("Copilot session warm failed: %r", exc)

@@ -53,18 +53,6 @@ else
     fail "Maigret executable not in PATH"
 fi
 
-# ── WhatsMyName ──────────────────────────────────────────────────────────────
-log "WhatsMyName"
-WMN_FILE=""
-[ -f "$EXTERNAL_TOOLS/whatsmyname/wmn-data.json" ] && WMN_FILE="$EXTERNAL_TOOLS/whatsmyname/wmn-data.json"
-[ -f "$EXTERNAL_TOOLS/whatsmyname/data/wmn-data.json" ] && WMN_FILE="$EXTERNAL_TOOLS/whatsmyname/data/wmn-data.json"
-if [ -n "$WMN_FILE" ]; then
-    COUNT=$(python3 -c "import json; d=json.load(open('$WMN_FILE')); print(len(d) if isinstance(d,list) else len(d.get('sites',d.get('data',[]))))")
-    pass "WhatsMyName dataset loaded ($COUNT sites)"
-else
-    fail "WhatsMyName dataset not found"
-fi
-
 # ── Social Analyzer ──────────────────────────────────────────────────────────
 log "Social Analyzer"
 if [ -d "$EXTERNAL_TOOLS/SocialAnalyzer" ]; then
@@ -181,10 +169,6 @@ with open(registry_path) as f:
 checks = {
     "sherlock": (external / "sherlock" / "sherlock_project" / "sherlock.py").exists(),
     "maigret": shutil.which("maigret") is not None,
-    "whatsmyname": (
-        (external / "whatsmyname" / "wmn-data.json").exists()
-        or (external / "whatsmyname" / "data" / "wmn-data.json").exists()
-    ),
     "social_analyzer": (external / "SocialAnalyzer").is_dir(),
     "holehe": shutil.which("holehe") is not None or importable("holehe"),
     "theharvester": (

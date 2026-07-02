@@ -11,12 +11,6 @@
     "installed": true,
     "type": "username_search"
   },
-  "whatsmyname": {
-    "path": "./external_tools/whatsmyname",
-    "executable": null,
-    "installed": true,
-    "type": "username_search"
-  },
   "social_analyzer": {
     "path": "./external_tools/SocialAnalyzer",
     "executable": "./external_tools/SocialAnalyzer/app.py",
@@ -60,5 +54,214 @@
     "installed": true,
     "builtin": true,
     "type": "image_intel"
+  },
+  "google_dorking": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "multi"
+  },
+  "phone_social_intel": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "infra_intel"
+  },
+  "platform_probe": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "username_search"
+  },
+  "samurai": {
+    "path": "./samurai",
+    "executable": "./samurai/main.py",
+    "installed": true,
+    "builtin": true,
+    "type": "username_search"
+  },
+  "pillow": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "exiftool": {
+    "path": null,
+    "executable": "exiftool",
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "hachoir": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "insightface": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "deepface": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "facenet": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "opencv_face": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "google_lens": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "bing_visual": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "yandex_images": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "tineye": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "tesseract": {
+    "path": null,
+    "executable": "tesseract",
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "easyocr": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "paddleocr": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "yolo": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "grounding_dino": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "clip": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "image_intel"
+  },
+  "blackbird": {
+    "path": "./external_tools/blackbird",
+    "executable": "./external_tools/blackbird/blackbird.py",
+    "installed": true,
+    "type": "username_search"
+  },
+  "nexfil": {
+    "path": "./external_tools/Nexfil",
+    "executable": "nexfil",
+    "installed": true,
+    "type": "username_search"
+  },
+  "gitfive": {
+    "path": "./external_tools/GitFive",
+    "executable": "./external_tools/GitFive/main.py",
+    "installed": true,
+    "type": "username_search"
+  },
+  "ghunt": {
+    "path": "./external_tools/GHunt",
+    "executable": "./external_tools/GHunt/main.py",
+    "installed": true,
+    "type": "email_intel"
+  },
+  "gravatar": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "email_intel"
+  },
+  "phoneinfoga": {
+    "path": "./external_tools/phoneinfoga",
+    "executable": "./external_tools/bin/phoneinfoga",
+    "installed": true,
+    "type": "infra_intel"
+  },
+  "subfinder": {
+    "path": null,
+    "executable": "./external_tools/bin/subfinder",
+    "installed": true,
+    "type": "domain_intel"
+  },
+  "amass": {
+    "path": null,
+    "executable": "./external_tools/bin/amass",
+    "installed": true,
+    "type": "domain_intel"
+  },
+  "dnsrecon": {
+    "path": "./external_tools/dnsrecon",
+    "executable": "./external_tools/dnsrecon/dnsrecon.py",
+    "installed": true,
+    "type": "domain_intel"
+  },
+  "whois": {
+    "path": null,
+    "executable": null,
+    "installed": true,
+    "builtin": true,
+    "type": "domain_intel"
   }
 }

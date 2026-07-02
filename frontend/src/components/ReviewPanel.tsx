@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
-import { fetchReviews, submitReview } from '../api/client';
+import { submitReview } from '../api/client';
+import {
+  decideApproval, fetchCaseApprovals, submitApproval, type ApprovalRecord,
+} from '../api/enterprise';
+import { useAuthStore } from '../store/authStore';
 import { useInvestigationStore } from '../store/investigationStore';
+import { hasPermission } from '../lib/permissions';
 import { ConfidenceBar } from './ui/ConfidenceBar';
 import { Badge } from './ui/Badge';
 import { EmptyState } from './ui/EmptyState';
@@ -9,31 +14,50 @@ export function ReviewPanel() {
   const investigationId = useInvestigationStore((s) => s.investigationId);
   const selectedClusterId = useInvestigationStore((s) => s.selectedClusterId);
   const result = useInvestigationStore((s) => s.result);
-  const reviews = useInvestigationStore((s) => s.reviews);
-  const addReview = useInvestigationStore((s) => s.addReview);
-  const setReviews = useInvestigationStore((s) => s.setReviews);
+  const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
+  const activeCaseId = useAuthStore((s) => s.activeCaseId);
+  const role = useAuthStore((s) => s.user?.role || 'VIEWER');
+  const canApprove = hasPermission(role, 'approve_evidence');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
 
   const cluster = result?.correlation?.clusters?.find((c) => c.account_cluster_id === selectedClusterId);
 
   useEffect(() => {
-    if (!investigationId) return;
-    fetchReviews(investigationId).then((d) => setReviews(d.reviews)).catch(() => {});
-  }, [investigationId, setReviews]);
+    if (!activeCaseId) return;
+    fetchCaseApprovals(activeCaseId).then((d) => setApprovals(d.approvals || [])).catch(() => setApprovals([]));
+  }, [activeCaseId, investigationId]);
+
+  const mapDecision = (d: 'approve' | 'reject' | 'suspicious'): string => {
+    if (d === 'approve') return 'approved';
+    if (d === 'reject') return 'rejected';
+    return 'clarification';
+  };
 
   const handleReview = async (decision: 'approve' | 'reject' | 'suspicious') => {
     if (!investigationId || !selectedClusterId) return;
+    if (!activeCaseId) {
+      alert('Select a case before submitting review');
+      return;
+    }
     setLoading(true);
     try {
-      const record = await submitReview({
+      const submitted = await submitApproval(activeCaseId, {
+        investigation_id: investigationId,
+        cluster_id: selectedClusterId,
+        notes: notes || `${decision} via review panel`,
+      });
+      if (canApprove && submitted.approval_id) {
+        await decideApproval(submitted.approval_id, mapDecision(decision), notes);
+      }
+      await submitReview({
         investigation_id: investigationId,
         cluster_id: selectedClusterId,
         decision,
-        reviewer: 'CID Investigator',
         notes,
       });
-      addReview(record);
+      const refreshed = await fetchCaseApprovals(activeCaseId);
+      setApprovals(refreshed.approvals || []);
       setNotes('');
     } catch {
       alert('Review submission failed');
@@ -87,20 +111,19 @@ export function ReviewPanel() {
         </button>
       </div>
 
-      {reviews.length > 0 && (
+      {approvals.length > 0 && (
         <div>
-          <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Review History</h3>
+          <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Enterprise Approval Chain</h3>
           <div className="space-y-2">
-            {reviews.map((r) => (
-              <div key={r.review_id} className="intel-card p-3 text-sm">
+            {approvals.map((r) => (
+              <div key={r.approval_id} className="intel-card p-3 text-sm">
                 <div className="flex items-center gap-2">
-                  <Badge variant={r.decision === 'approve' ? 'success' : r.decision === 'reject' ? 'danger' : 'warn'}>
-                    {r.decision === 'approve' ? 'Accepted' : r.decision === 'reject' ? 'Rejected' : 'Needs Review'}
+                  <Badge variant={r.decision === 'approved' ? 'success' : r.decision === 'rejected' ? 'danger' : 'warn'}>
+                    {r.decision}
                   </Badge>
-                  <span className="font-mono text-xs text-slate-500">{r.cluster_id.slice(0, 16)}…</span>
+                  <span className="font-mono text-xs text-slate-500">{r.stage}</span>
                 </div>
                 {r.notes && <p className="mt-2 text-xs text-slate-400">{r.notes}</p>}
-                <p className="mt-1 text-[10px] text-slate-600">{new Date(r.timestamp).toLocaleString()}</p>
               </div>
             ))}
           </div>

@@ -6,7 +6,7 @@ class UsernameSearchRequest(BaseModel):
     timeout_per_tool: float = Field(default=120.0, ge=10.0, le=600.0)
     tools: list[str] | None = Field(
         default=None,
-        description="Override default tools. Options: sherlock, maigret, whatsmyname, social_analyzer",
+        description="Override default tools. Options: sherlock, maigret, social_analyzer, google_dorking",
     )
 
 
@@ -15,7 +15,7 @@ class EmailIntelRequest(BaseModel):
     timeout_per_tool: float = Field(default=120.0, ge=10.0, le=600.0)
     tools: list[str] | None = Field(
         default=None,
-        description="Override default tools. Options: holehe, theharvester, spiderfoot",
+        description="Override default tools. Options: holehe, theharvester, spiderfoot, google_dorking",
     )
 
 
@@ -24,7 +24,7 @@ class DomainIntelRequest(BaseModel):
     timeout_per_tool: float = Field(default=180.0, ge=10.0, le=600.0)
     tools: list[str] | None = Field(
         default=None,
-        description="Override default tools. Options: theharvester, spiderfoot, recon_ng",
+        description="Override default tools. Options: theharvester, spiderfoot, recon_ng, google_dorking",
     )
 
 
@@ -50,7 +50,7 @@ class CorrelationRequest(BaseModel):
         description="Normalized fusion entities (type, value, sources, metadata). Can be empty.",
     )
 
-    model_config = {"json_schema_extra": {"examples": [{"seed_query": "manojyadavnr", "entities": []}]}}
+    model_config = {"json_schema_extra": {"examples": [{"seed_query": "targetuser", "entities": []}]}}
 
 
 class GraphIntelRequest(BaseModel):

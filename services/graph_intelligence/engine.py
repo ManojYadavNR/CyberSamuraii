@@ -8,8 +8,14 @@ import os
 from typing import Any
 
 from schemas.correlation import CorrelationOutput
+from schemas.evidence import EvidenceExtractionOutput
 from schemas.fusion import Entity, FusionOutput
 from schemas.graph import GraphCluster, GraphOutput, InfluenceScore, SuspiciousNetwork
+from schemas.intelligence import IdentityProfile
+from schemas.pivot import InvestigationTree
+from services.graph_intelligence.knowledge_graph import build_knowledge_graph
+from services.graph_intelligence.reasoning import discover_reasoning_paths
+from services.image_intelligence.path_utils import display_target_label, is_local_path
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +45,10 @@ class GraphIntelligenceEngine:
         fusion: FusionOutput | None,
         correlation: CorrelationOutput | None,
         seed_query: str = "",
+        *,
+        identity_profile: IdentityProfile | None = None,
+        evidence_extraction: EvidenceExtractionOutput | None = None,
+        investigation_tree: InvestigationTree | None = None,
     ) -> GraphOutput:
         warnings: list[str] = []
         nx = _import_networkx()
@@ -60,23 +70,39 @@ class GraphIntelligenceEngine:
 
         neo4j_exported = self._export_neo4j(graph)
 
+        kg_nodes, kg_edges = build_knowledge_graph(
+            seed_query=seed_query,
+            fusion=fusion,
+            correlation=correlation,
+            identity_profile=identity_profile,
+            evidence_extraction=evidence_extraction,
+            investigation_tree=investigation_tree,
+        )
+        reasoning_paths = discover_reasoning_paths(kg_nodes, kg_edges, seed_query=seed_query)
+
         return GraphOutput(
             clusters=clusters,
             influence_scores=influence,
             suspicious_networks=suspicious,
-            node_count=graph.number_of_nodes(),
-            edge_count=graph.number_of_edges(),
+            node_count=max(graph.number_of_nodes(), len(kg_nodes)),
+            edge_count=max(graph.number_of_edges(), len(kg_edges)),
             warnings=warnings,
             neo4j_exported=neo4j_exported,
+            knowledge_graph_nodes=kg_nodes,
+            knowledge_graph_edges=kg_edges,
+            reasoning_paths=reasoning_paths,
         )
 
     def _ingest_entities(self, graph: Any, entities: list[Entity]) -> None:
         for entity in entities:
+            value = entity.canonical_value or entity.value
+            if is_local_path(str(value)):
+                continue
             node_type = self._map_entity_type(entity.type)
-            nid = _node_id(node_type, entity.canonical_value or entity.value)
+            nid = _node_id(node_type, value)
             graph.add_node(
                 nid,
-                label=entity.canonical_value or entity.value,
+                label=value,
                 node_type=node_type,
                 fusion_score=entity.fusion_score,
                 sources=entity.sources,
@@ -92,7 +118,10 @@ class GraphIntelligenceEngine:
             if entity.type == "image":
                 for acct in entities:
                     if acct.type == "account" and acct.metadata.get("avatar_url"):
-                        acct_nid = _node_id("Account", acct.canonical_value or acct.value)
+                        acct_val = acct.canonical_value or acct.value
+                        if is_local_path(str(acct_val)):
+                            continue
+                        acct_nid = _node_id("Account", acct_val)
                         if graph.has_node(acct_nid):
                             graph.add_edge(acct_nid, nid, relation="SHARES_IMAGE", weight=0.8)
 
@@ -134,7 +163,7 @@ class GraphIntelligenceEngine:
                         weight=cluster.confidence_score / 100,
                     )
 
-        if seed_query:
+        if seed_query and not is_local_path(seed_query):
             seed_nid = _node_id("Hashtag", seed_query)
             graph.add_node(seed_nid, label=seed_query, node_type="Hashtag")
             for node, data in graph.nodes(data=True):
@@ -282,21 +311,25 @@ class GraphIntelligenceEngine:
                         )
                     )
 
-        dense = [c for c in nx.community.greedy_modularity_communities(graph) if len(c) >= 6]
-        if dense:
-            members = sorted(dense[0])
-            suspicious.append(
-                SuspiciousNetwork(
-                    network_id="net_propaganda_0",
-                    network_type="propaganda_cluster",
-                    members=members[:25],
-                    confidence=0.55,
-                    indicators=[
-                        f"Dense community of {len(dense[0])} interconnected nodes",
-                        "Coordinated narrative or propaganda cluster pattern",
-                    ],
-                )
-            )
+        try:
+            if graph.number_of_edges() > 0:
+                dense = [c for c in nx.community.greedy_modularity_communities(graph) if len(c) >= 6]
+                if dense:
+                    members = sorted(dense[0])
+                    suspicious.append(
+                        SuspiciousNetwork(
+                            network_id="net_propaganda_0",
+                            network_type="propaganda_cluster",
+                            members=members[:25],
+                            confidence=0.55,
+                            indicators=[
+                                f"Dense community of {len(dense[0])} interconnected nodes",
+                                "Coordinated narrative or propaganda cluster pattern",
+                            ],
+                        )
+                    )
+        except Exception as exc:
+            logger.debug("Greedy modularity communities skipped: %s", exc)
 
         return suspicious
 

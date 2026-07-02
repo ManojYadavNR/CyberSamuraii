@@ -1,0 +1,790 @@
+{
+  "version": "1.0",
+  "description": "SOCMINT OSINT Framework registry catalog",
+  "tools": [
+    {
+      "tool_name": "sherlock",
+      "supported_inputs": [
+        "username"
+      ],
+      "entity_types": [
+        "account"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.86,
+      "parallel_safe": true,
+      "priority": 20,
+      "parallel_group": "username_scan",
+      "adapter_key": "sherlock",
+      "feature": "username_search",
+      "hop_eligible": true,
+      "osint_category": "Username",
+      "description": "Hunt usernames across social networks"
+    },
+    {
+      "tool_name": "maigret",
+      "supported_inputs": [
+        "username"
+      ],
+      "entity_types": [
+        "account"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.86,
+      "parallel_safe": true,
+      "priority": 15,
+      "parallel_group": "username_scan",
+      "adapter_key": "maigret",
+      "feature": "username_search",
+      "hop_eligible": true,
+      "osint_category": "Username",
+      "description": "Collect a dossier on a person by username"
+    },
+    {
+      "tool_name": "social_analyzer",
+      "supported_inputs": [
+        "username"
+      ],
+      "entity_types": [
+        "account"
+      ],
+      "cost": "free",
+      "speed": "slow",
+      "confidence": 0.82,
+      "parallel_safe": true,
+      "priority": 25,
+      "parallel_group": "username_scan",
+      "adapter_key": "social_analyzer",
+      "feature": "username_search",
+      "osint_category": "Username",
+      "description": "Analyze social media profiles at scale"
+    },
+    {
+      "tool_name": "platform_probe",
+      "supported_inputs": [
+        "username"
+      ],
+      "entity_types": [
+        "account"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.9,
+      "parallel_safe": true,
+      "priority": 5,
+      "parallel_group": "username_fast",
+      "adapter_key": "platform_probe",
+      "feature": "username_search",
+      "osint_category": "Username",
+      "description": "Direct HTTP probe of major platforms"
+    },
+    {
+      "tool_name": "samurai",
+      "supported_inputs": [
+        "username"
+      ],
+      "entity_types": [
+        "account",
+        "image",
+        "document"
+      ],
+      "cost": "free",
+      "speed": "slow",
+      "confidence": 0.9,
+      "parallel_safe": true,
+      "priority": 12,
+      "parallel_group": "social_deep",
+      "adapter_key": "samurai",
+      "feature": "username_search",
+      "hop_eligible": false,
+      "osint_category": "Social Media",
+      "description": "Deep Instagram & Facebook profile scrape (Samurai)"
+    },
+    {
+      "tool_name": "google_dorking",
+      "supported_inputs": [
+        "username",
+        "email",
+        "domain",
+        "phone"
+      ],
+      "entity_types": [
+        "account",
+        "email",
+        "document",
+        "image"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.78,
+      "parallel_safe": true,
+      "priority": 30,
+      "parallel_group": "web_search",
+      "adapter_key": "google_dorking",
+      "hop_eligible": true,
+      "osint_category": "Search Engines",
+      "description": "Google dork / web search intelligence"
+    },
+    {
+      "tool_name": "blackbird",
+      "supported_inputs": [
+        "username"
+      ],
+      "entity_types": [
+        "account"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.84,
+      "parallel_safe": true,
+      "priority": 18,
+      "parallel_group": "username_scan",
+      "enabled": true,
+      "osint_category": "Username",
+      "description": "Blackbird OSINT username search",
+      "adapter_key": "blackbird"
+    },
+    {
+      "tool_name": "nexfil",
+      "supported_inputs": [
+        "username"
+      ],
+      "entity_types": [
+        "account"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.8,
+      "parallel_safe": true,
+      "priority": 22,
+      "parallel_group": "username_scan",
+      "enabled": false,
+      "osint_category": "Username",
+      "description": "Nexfil username OSINT (requires Chrome — disabled by default)",
+      "adapter_key": "nexfil"
+    },
+    {
+      "tool_name": "profil3r",
+      "supported_inputs": [
+        "username"
+      ],
+      "entity_types": [
+        "account"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.79,
+      "parallel_safe": true,
+      "priority": 28,
+      "parallel_group": "username_scan",
+      "catalog_only": true,
+      "enabled": false,
+      "osint_category": "Username",
+      "description": "Profil3r multi-platform username recon"
+    },
+    {
+      "tool_name": "gitfive",
+      "supported_inputs": [
+        "username"
+      ],
+      "entity_types": [
+        "account"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.83,
+      "parallel_safe": true,
+      "priority": 24,
+      "parallel_group": "username_scan",
+      "enabled": false,
+      "osint_category": "Username",
+      "description": "GitFive GitHub-centric username intel (disabled — requires gitfive login)",
+      "adapter_key": "gitfive"
+    },
+    {
+      "tool_name": "holehe",
+      "supported_inputs": [
+        "email"
+      ],
+      "entity_types": [
+        "account",
+        "email"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.91,
+      "parallel_safe": true,
+      "priority": 10,
+      "parallel_group": "email_scan",
+      "adapter_key": "holehe",
+      "feature": "email_intel",
+      "osint_category": "Email",
+      "description": "Check if email is registered on sites"
+    },
+    {
+      "tool_name": "theharvester",
+      "supported_inputs": [
+        "email",
+        "domain"
+      ],
+      "entity_types": [
+        "email",
+        "domain",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.72,
+      "parallel_safe": true,
+      "priority": 20,
+      "parallel_group": "domain_email",
+      "adapter_key": "theharvester",
+      "feature": "email_intel",
+      "hop_eligible": true,
+      "osint_category": "Email",
+      "description": "Gather emails, subdomains, hosts"
+    },
+    {
+      "tool_name": "spiderfoot",
+      "supported_inputs": [
+        "email",
+        "domain",
+        "phone"
+      ],
+      "entity_types": [
+        "email",
+        "domain",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "slow",
+      "confidence": 0.76,
+      "parallel_safe": true,
+      "priority": 25,
+      "parallel_group": "domain_email",
+      "adapter_key": "spiderfoot",
+      "feature": "email_intel",
+      "hop_eligible": true,
+      "osint_category": "Frameworks",
+      "description": "Automated OSINT collection"
+    },
+    {
+      "tool_name": "ghunt",
+      "supported_inputs": [
+        "email"
+      ],
+      "entity_types": [
+        "account",
+        "email"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.85,
+      "parallel_safe": true,
+      "priority": 15,
+      "parallel_group": "email_scan",
+      "enabled": true,
+      "osint_category": "Email",
+      "description": "Google account investigation via email",
+      "adapter_key": "ghunt"
+    },
+    {
+      "tool_name": "emailrep",
+      "supported_inputs": [
+        "email"
+      ],
+      "entity_types": [
+        "email"
+      ],
+      "cost": "low",
+      "speed": "fast",
+      "confidence": 0.8,
+      "parallel_safe": true,
+      "priority": 18,
+      "parallel_group": "email_scan",
+      "catalog_only": true,
+      "enabled": false,
+      "osint_category": "Email",
+      "description": "Email reputation API"
+    },
+    {
+      "tool_name": "gravatar",
+      "supported_inputs": [
+        "email"
+      ],
+      "entity_types": [
+        "account",
+        "email",
+        "image"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.9,
+      "parallel_safe": true,
+      "priority": 12,
+      "parallel_group": "email_scan",
+      "enabled": true,
+      "osint_category": "Email",
+      "description": "Gravatar profile lookup",
+      "adapter_key": "gravatar"
+    },
+    {
+      "tool_name": "insightface",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "slow",
+      "confidence": 0.92,
+      "parallel_safe": false,
+      "priority": 15,
+      "parallel_group": "face_ml",
+      "adapter_key": "insightface",
+      "feature": "image_intel",
+      "osint_category": "Image Analysis",
+      "description": "InsightFace face detection and embedding"
+    },
+    {
+      "tool_name": "deepface",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "slow",
+      "confidence": 0.88,
+      "parallel_safe": false,
+      "priority": 20,
+      "parallel_group": "face_ml",
+      "adapter_key": "deepface",
+      "feature": "image_intel",
+      "osint_category": "Image Analysis",
+      "description": "DeepFace facial analysis"
+    },
+    {
+      "tool_name": "facenet",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image"
+      ],
+      "cost": "free",
+      "speed": "slow",
+      "confidence": 0.85,
+      "parallel_safe": false,
+      "priority": 22,
+      "parallel_group": "face_ml",
+      "adapter_key": "facenet",
+      "feature": "image_intel",
+      "osint_category": "Image Analysis",
+      "description": "FaceNet embeddings"
+    },
+    {
+      "tool_name": "opencv_face",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.78,
+      "parallel_safe": true,
+      "priority": 10,
+      "parallel_group": "face_fast",
+      "adapter_key": "opencv_face",
+      "feature": "image_intel",
+      "osint_category": "Image Analysis",
+      "description": "OpenCV face detection"
+    },
+    {
+      "tool_name": "google_lens",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.8,
+      "parallel_safe": true,
+      "priority": 25,
+      "parallel_group": "reverse_image",
+      "adapter_key": "google_lens",
+      "feature": "image_intel",
+      "osint_category": "Reverse Image",
+      "description": "Google Lens visual search"
+    },
+    {
+      "tool_name": "yandex_images",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.76,
+      "parallel_safe": true,
+      "priority": 28,
+      "parallel_group": "reverse_image",
+      "adapter_key": "yandex_images",
+      "feature": "image_intel",
+      "osint_category": "Reverse Image",
+      "description": "Yandex reverse image search"
+    },
+    {
+      "tool_name": "tineye",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image",
+        "account"
+      ],
+      "cost": "low",
+      "speed": "fast",
+      "confidence": 0.84,
+      "parallel_safe": true,
+      "priority": 18,
+      "parallel_group": "reverse_image",
+      "adapter_key": "tineye",
+      "feature": "image_intel",
+      "osint_category": "Reverse Image",
+      "description": "TinEye reverse image search"
+    },
+    {
+      "tool_name": "bing_visual",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.8,
+      "parallel_safe": true,
+      "priority": 26,
+      "parallel_group": "reverse_image",
+      "adapter_key": "bing_visual",
+      "feature": "image_intel",
+      "osint_category": "Reverse Image",
+      "description": "Bing visual search"
+    },
+    {
+      "tool_name": "saucenao",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.82,
+      "parallel_safe": true,
+      "priority": 19,
+      "parallel_group": "reverse_image",
+      "catalog_only": true,
+      "enabled": false,
+      "osint_category": "Reverse Image",
+      "description": "SauceNAO anime/image reverse search"
+    },
+    {
+      "tool_name": "facecheck",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image",
+        "account"
+      ],
+      "cost": "medium",
+      "speed": "medium",
+      "confidence": 0.81,
+      "parallel_safe": true,
+      "priority": 30,
+      "parallel_group": "reverse_image",
+      "catalog_only": true,
+      "enabled": false,
+      "osint_category": "Reverse Image",
+      "description": "FaceCheck.id facial search"
+    },
+    {
+      "tool_name": "pimeyes",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image",
+        "account"
+      ],
+      "cost": "high",
+      "speed": "medium",
+      "confidence": 0.83,
+      "parallel_safe": true,
+      "priority": 32,
+      "parallel_group": "reverse_image",
+      "catalog_only": true,
+      "enabled": false,
+      "osint_category": "Reverse Image",
+      "description": "PimEyes facial recognition search"
+    },
+    {
+      "tool_name": "pillow",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.82,
+      "parallel_safe": true,
+      "priority": 5,
+      "parallel_group": "metadata",
+      "adapter_key": "pillow",
+      "feature": "image_intel",
+      "osint_category": "Image Analysis",
+      "description": "Pillow image metadata"
+    },
+    {
+      "tool_name": "exiftool",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.88,
+      "parallel_safe": true,
+      "priority": 6,
+      "parallel_group": "metadata",
+      "adapter_key": "exiftool",
+      "feature": "image_intel",
+      "osint_category": "Image Analysis",
+      "description": "ExifTool metadata extraction"
+    },
+    {
+      "tool_name": "tesseract",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image",
+        "document"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.86,
+      "parallel_safe": false,
+      "priority": 12,
+      "parallel_group": "ocr",
+      "adapter_key": "tesseract",
+      "feature": "image_intel",
+      "osint_category": "Image Analysis",
+      "description": "Tesseract OCR"
+    },
+    {
+      "tool_name": "image_intel",
+      "supported_inputs": [
+        "image"
+      ],
+      "entity_types": [
+        "image",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.58,
+      "parallel_safe": true,
+      "priority": 8,
+      "parallel_group": "metadata",
+      "adapter_key": "image_intel",
+      "feature": "image_intel",
+      "osint_category": "Image Analysis",
+      "description": "Legacy image intelligence adapter"
+    },
+    {
+      "tool_name": "recon_ng",
+      "supported_inputs": [
+        "domain"
+      ],
+      "entity_types": [
+        "domain",
+        "email",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.71,
+      "parallel_safe": true,
+      "priority": 22,
+      "parallel_group": "domain_scan",
+      "adapter_key": "recon_ng",
+      "feature": "domain_intel",
+      "hop_eligible": true,
+      "osint_category": "Domain",
+      "description": "Recon-ng web reconnaissance framework"
+    },
+    {
+      "tool_name": "amass",
+      "supported_inputs": [
+        "domain"
+      ],
+      "entity_types": [
+        "domain"
+      ],
+      "cost": "free",
+      "speed": "slow",
+      "confidence": 0.88,
+      "parallel_safe": true,
+      "priority": 12,
+      "parallel_group": "domain_scan",
+      "enabled": true,
+      "osint_category": "Domain",
+      "description": "OWASP Amass subdomain enumeration",
+      "adapter_key": "amass"
+    },
+    {
+      "tool_name": "subfinder",
+      "supported_inputs": [
+        "domain"
+      ],
+      "entity_types": [
+        "domain"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.86,
+      "parallel_safe": true,
+      "priority": 10,
+      "parallel_group": "domain_scan",
+      "enabled": true,
+      "osint_category": "Domain",
+      "description": "Subfinder passive subdomain discovery",
+      "adapter_key": "subfinder"
+    },
+    {
+      "tool_name": "whois",
+      "supported_inputs": [
+        "domain"
+      ],
+      "entity_types": [
+        "domain",
+        "organization"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.75,
+      "parallel_safe": true,
+      "priority": 8,
+      "parallel_group": "domain_scan",
+      "enabled": true,
+      "osint_category": "Domain",
+      "description": "WHOIS domain registration lookup",
+      "adapter_key": "whois"
+    },
+    {
+      "tool_name": "dnsrecon",
+      "supported_inputs": [
+        "domain"
+      ],
+      "entity_types": [
+        "domain"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.8,
+      "parallel_safe": true,
+      "priority": 15,
+      "parallel_group": "domain_scan",
+      "enabled": true,
+      "osint_category": "Domain",
+      "description": "DNSRecon DNS enumeration",
+      "adapter_key": "dnsrecon"
+    },
+    {
+      "tool_name": "phone_social_intel",
+      "supported_inputs": [
+        "phone"
+      ],
+      "entity_types": [
+        "phone",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "medium",
+      "confidence": 0.88,
+      "parallel_safe": true,
+      "priority": 5,
+      "parallel_group": "phone_scan",
+      "enabled": true,
+      "osint_category": "Phone",
+      "description": "Phone social OSINT — ignorant registration checks, Instagram/Facebook profile resolution, WhatsApp/Telegram links, India-focused people search",
+      "adapter_key": "phone_social_intel",
+      "feature": "infra_intel"
+    },
+    {
+      "tool_name": "phoneinfoga",
+      "supported_inputs": [
+        "phone"
+      ],
+      "entity_types": [
+        "phone",
+        "account"
+      ],
+      "cost": "free",
+      "speed": "fast",
+      "confidence": 0.82,
+      "parallel_safe": true,
+      "priority": 10,
+      "parallel_group": "phone_scan",
+      "enabled": true,
+      "osint_category": "Phone",
+      "description": "PhoneInfoga phone number OSINT",
+      "adapter_key": "phoneinfoga"
+    },
+    {
+      "tool_name": "shodan",
+      "supported_inputs": [
+        "phone",
+        "infra"
+      ],
+      "entity_types": [
+        "domain"
+      ],
+      "cost": "low",
+      "speed": "fast",
+      "confidence": 0.94,
+      "parallel_safe": true,
+      "priority": 10,
+      "parallel_group": "infra_scan",
+      "adapter_key": "shodan",
+      "feature": "infra_intel",
+      "osint_category": "Infrastructure",
+      "description": "Shodan internet-wide scanner"
+    }
+  ]
+}

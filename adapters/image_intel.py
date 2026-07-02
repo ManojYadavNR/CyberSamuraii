@@ -1,4 +1,5 @@
 import os
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -20,7 +21,7 @@ class ImageIntelAdapter(BaseAdapter):
         image_url = query if query.startswith("http") else None
 
         if image_path:
-            metadata = await self._extract_metadata(image_path)
+            metadata = await asyncio.to_thread(self._extract_metadata_sync, image_path)
             results.append(
                 self._normalize_entry(
                     platform="metadata_extraction",
@@ -38,7 +39,7 @@ class ImageIntelAdapter(BaseAdapter):
             raw_output=f"Image intel pipeline: {len(results)} results",
         )
 
-    async def _extract_metadata(self, image_path: str) -> dict:
+    def _extract_metadata_sync(self, image_path: str) -> dict:
         metadata: dict = {"source": "exif_extraction", "file": image_path}
         try:
             from PIL import Image
@@ -48,17 +49,14 @@ class ImageIntelAdapter(BaseAdapter):
                 metadata["format"] = img.format
                 metadata["size"] = {"width": img.width, "height": img.height}
                 metadata["mode"] = img.mode
-
-                exif = img._getexif()
-                if exif:
-                    exif_data = {}
-                    for tag_id, value in exif.items():
-                        tag = TAGS.get(tag_id, tag_id)
-                        if isinstance(value, bytes):
-                            value = value.decode(errors="replace")[:200]
-                        exif_data[str(tag)] = value
-                    metadata["exif"] = exif_data
-
+                exif = img._getexif() or {}
+                exif_data = {}
+                for tag_id, value in exif.items():
+                    tag = TAGS.get(tag_id, tag_id)
+                    if isinstance(value, bytes):
+                        value = value.decode(errors="replace")[:200]
+                    exif_data[str(tag)] = value
+                metadata["exif"] = exif_data
             try:
                 import piexif
 
@@ -67,11 +65,12 @@ class ImageIntelAdapter(BaseAdapter):
                     metadata["gps_present"] = True
             except Exception:
                 pass
-
-        except Exception as e:
-            metadata["error"] = str(e)
-
+        except Exception as exc:
+            metadata["error"] = str(exc)
         return metadata
+
+    async def _extract_metadata(self, image_path: str) -> dict:
+        return await asyncio.to_thread(self._extract_metadata_sync, image_path)
 
     async def _reverse_image_search_placeholder(
         self, source: str | None

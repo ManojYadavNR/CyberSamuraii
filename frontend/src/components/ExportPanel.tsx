@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { exportReport } from '../api/client';
+import { useAuthStore } from '../store/authStore';
 import { useInvestigationStore } from '../store/investigationStore';
 import { investigationSummary } from '../lib/uiHelpers';
 import { Badge } from './ui/Badge';
@@ -39,7 +40,8 @@ export function ExportPanel() {
         investigation_id: investigationId,
         query,
         result: result as unknown as Record<string, unknown>,
-        reviewer: 'CID Investigator',
+        reviewer: useAuthStore.getState().user?.username || 'investigator',
+        case_id: useAuthStore.getState().activeCaseId || undefined,
       });
       setHash(report.integrity_hash);
       download(new Blob([report.html], { type: 'text/html' }), `socmint-report-${investigationId.slice(0, 8)}.html`);

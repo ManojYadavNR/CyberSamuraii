@@ -1,10 +1,13 @@
 import abc
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from schemas.common import ToolResult, ToolStatus
 from tools.registry import registry
+
+ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class BaseAdapter(abc.ABC):
@@ -17,6 +20,11 @@ class BaseAdapter(abc.ABC):
 
     def __init__(self):
         self.registry = registry
+        self._on_progress: ProgressCallback | None = None
+
+    async def _emit_progress(self, payload: dict[str, Any]) -> None:
+        if self._on_progress:
+            await self._on_progress({**payload, "tool": self.name})
 
     def verify_tool(self) -> tuple[bool, str | None]:
         """Verify tool exists and is healthy before execution."""
@@ -29,10 +37,16 @@ class BaseAdapter(abc.ABC):
             return False, f"Tool '{self.name}' is unhealthy. Run scripts/verify_tools.sh"
         return True, None
 
-    async def run(self, query: str, timeout: float | None = None) -> ToolResult:
+    async def run(
+        self,
+        query: str,
+        timeout: float | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> ToolResult:
         """Execute tool with timeout, retry, and failure isolation."""
         timeout = timeout or self.default_timeout
         start = time.monotonic()
+        self._on_progress = on_progress
 
         ok, error = self.verify_tool()
         if not ok:
@@ -54,6 +68,7 @@ class BaseAdapter(abc.ABC):
                 return result
             except asyncio.TimeoutError:
                 last_error = f"Tool '{self.name}' timed out after {timeout}s"
+                break
             except Exception as e:
                 last_error = f"Tool '{self.name}' failed: {type(e).__name__}: {e}"
 

@@ -28,27 +28,12 @@ CONSUMER_MAIL_DOMAINS = frozenset(
     }
 )
 
-# High-value platforms to surface first when checks are inconclusive.
-PRIORITY_PLATFORMS = (
-    "instagram.com",
-    "github.com",
-    "discord.com",
-    "spotify.com",
-    "facebook.com",
-    "linkedin.com",
-    "reddit.com",
-    "tiktok.com",
-    "pinterest.com",
-    "snapchat.com",
-    "telegram.org",
-    "google.com",
-    "microsoft.com",
-    "amazon.com",
-    "paypal.com",
-    "netflix.com",
-)
-
+# Sort holehe leads by confidence, not platform brand.
 MAX_INVESTIGATION_LEADS = 25
+
+
+def _platform_priority(_platform: str) -> int:
+    return 0
 
 
 def email_domain(email: str) -> str:
@@ -84,6 +69,7 @@ async def fetch_gravatar_profile(email: str) -> dict[str, Any] | None:
                 "avatar_url": f"https://www.gravatar.com/avatar/{digest}",
                 "location": entry.get("currentLocation"),
                 "about": entry.get("aboutMe"),
+                "bio": entry.get("aboutMe"),
                 "accounts": [
                     {
                         "domain": acct.get("domain"),
@@ -96,13 +82,6 @@ async def fetch_gravatar_profile(email: str) -> dict[str, Any] | None:
             }
     except Exception:
         return None
-
-
-def _platform_priority(platform: str) -> int:
-    try:
-        return PRIORITY_PLATFORMS.index(platform)
-    except ValueError:
-        return len(PRIORITY_PLATFORMS) + 1
 
 
 def _confirmed_from_holehe(item: dict[str, Any]) -> dict[str, Any]:
@@ -198,10 +177,76 @@ def build_email_investigation(
             harvest_items = [x for x in harvest_items if x]
             if harvest_items:
                 confirmed.extend(harvest_items)
+            skipped = (
+                not harvest_items
+                and bool(result.raw_output)
+                and "Skipped theHarvester" in result.raw_output
+            )
             scan_summary["theharvester"] = {
-                "status": "completed",
+                "status": "skipped" if skipped else "completed",
                 "items": len(harvest_items),
+                "note": (result.raw_output or "")[:240] if skipped else None,
             }
+
+        elif result.tool == "google_dorking":
+            dork_hits = [
+                item
+                for item in result.data
+                if item.get("check_type") == "google_dork" and item.get("platform") != "_scan_summary"
+            ]
+            summary_row = next(
+                (item for item in result.data if item.get("platform") == "_scan_summary"),
+                {},
+            )
+            scan_summary["google_dorking"] = {
+                "status": "completed",
+                "hits": len(dork_hits),
+                "dorks_run": summary_row.get("sites_checked") or len(dork_hits),
+            }
+            for item in dork_hits[:12]:
+                url = item.get("url")
+                if not url:
+                    continue
+                confirmed.append(
+                    {
+                        "type": "email_web_mention",
+                        "platform": item.get("platform") or "google_search",
+                        "email": query,
+                        "url": url,
+                        "title": item.get("title"),
+                        "snippet": item.get("snippet"),
+                        "dork_category": item.get("dork_category"),
+                        "confidence": "public",
+                        "source_tool": "google_dorking",
+                    }
+                )
+
+        elif result.tool == "gravatar":
+            found = any(item.get("platform") == "gravatar" for item in result.data)
+            scan_summary["gravatar"] = {
+                "status": "completed",
+                "found": found,
+            }
+
+        elif result.tool == "ghunt":
+            ghunt_items = [item for item in result.data if item.get("profile_metadata") or item.get("email")]
+            scan_summary["ghunt"] = {
+                "status": "completed",
+                "items": len(ghunt_items),
+                "note": (result.raw_output or "")[:200] if not ghunt_items else None,
+            }
+            for item in ghunt_items:
+                meta = item.get("profile_metadata") or {}
+                confirmed.append(
+                    {
+                        "type": "google_account_intel",
+                        "platform": "google",
+                        "email": query,
+                        "confidence": "public",
+                        "source_tool": "ghunt",
+                        "profile_metadata": meta,
+                    }
+                )
 
         elif result.tool == "spiderfoot":
             sf_items = [_public_from_tool(item) for item in result.data]
@@ -219,17 +264,23 @@ def build_email_investigation(
             }
 
     public_data = list(public_profiles)
+    from services.email_profile_resolver import build_profile_url
+
     for profile in public_data:
         for acct in profile.get("accounts") or []:
             if acct.get("domain"):
+                username = acct.get("username") or acct.get("display")
+                profile_url = build_profile_url(str(acct["domain"]), str(username) if username else None)
                 confirmed.append(
                     {
                         "type": "linked_account",
                         "platform": acct["domain"],
-                        "username": acct.get("username"),
+                        "username": username,
                         "confidence": "public",
                         "source_tool": "gravatar",
-                        "profile_url": profile.get("profile_url"),
+                        "profile_url": profile_url or profile.get("profile_url"),
+                        "url": profile_url,
+                        "linked_from_gravatar": True,
                     }
                 )
 

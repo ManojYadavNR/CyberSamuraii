@@ -14,14 +14,15 @@ def normalize_username(query: str) -> tuple[str, list[str]]:
             f"Query '{original}' contains spaces. Username tools expect handles; "
             "using a normalized form for scanning."
         )
+        normalized = re.sub(r"[^\w.-]", "", original.replace(" ", ""))
+        if not normalized:
+            normalized = re.sub(r"\s+", "_", original).lower()
+        else:
+            normalized = normalized.lower()
+        return normalized, warnings
 
-    normalized = re.sub(r"[^\w.-]", "", original.replace(" ", ""))
-    if not normalized:
-        normalized = re.sub(r"\s+", "_", original).lower()
-    else:
-        normalized = normalized.lower()
-
-    return normalized, warnings
+    cleaned = re.sub(r"[^\w.-]", "", original)
+    return (cleaned or original), warnings
 
 
 def safe_filename(value: str) -> str:

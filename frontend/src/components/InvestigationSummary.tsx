@@ -15,11 +15,14 @@ export function InvestigationSummary() {
 
   const stats = [
     { label: 'Accounts Found', value: String(s.accountsFound), accent: 'text-cyan-300' },
-    { label: 'Clusters', value: String(s.clusters), accent: 'text-blue-300' },
+    { label: 'Identity Confidence', value: `${s.identityConfidence.toFixed(0)}%`, accent: 'text-violet-300' },
+    { label: 'Fields Extracted', value: String(result?.evidence_extraction?.fields_extracted ?? 0), accent: 'text-fuchsia-300' },
+    { label: 'Entities Enriched', value: String(s.entitiesEnriched), accent: 'text-emerald-300' },
+    { label: 'Discovery Hops', value: String(result?.discovery?.total_hops ?? 0), accent: 'text-violet-300' },
+    { label: 'Reasoning Paths', value: String(s.reasoningPaths), accent: 'text-cyan-300' },
     { label: 'Fusion Score', value: `${s.fusionScore.toFixed(0)}%`, accent: 'text-emerald-300' },
-    { label: 'Confidence', value: `${s.confidence.toFixed(0)}%`, accent: 'text-amber-300' },
+    { label: 'Clusters', value: String(s.clusters), accent: 'text-blue-300' },
     { label: 'Runtime', value: `${s.runtime.toFixed(0)}s`, accent: 'text-slate-300' },
-    { label: 'Suspicious Networks', value: String(s.suspiciousNetworks), accent: s.suspiciousNetworks > 0 ? 'text-rose-300' : 'text-slate-400' },
   ];
 
   return (

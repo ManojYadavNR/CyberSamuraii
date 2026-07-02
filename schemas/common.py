@@ -4,6 +4,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from schemas.correlation import CorrelationOutput
+from schemas.discovery import DiscoveryOutput
+from schemas.evidence import EvidenceExtractionOutput
+from schemas.intelligence import IdentityProfile
 from schemas.fusion import FusionOutput
 from schemas.graph import GraphOutput
 
@@ -55,6 +58,11 @@ class FeatureResult(BaseModel):
     fusion: FusionOutput | None = None
     correlation: CorrelationOutput | None = None
     graph: GraphOutput | None = None
+    discovery: DiscoveryOutput | None = None
+    evidence_extraction: EvidenceExtractionOutput | None = None
+    identity_profile: IdentityProfile | None = None
+    reverse_image_discovery: Any | None = None
+    image_correlation: Any | None = None
     confidence_raw_inputs: list[ConfidenceInput] = Field(default_factory=list)
     total_execution_time_ms: float = 0.0
     tools_succeeded: int = 0

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { fetchToolStatus } from '../api/client';
 import { useInvestigationStore } from '../store/investigationStore';
 import type { BackendToolHealth } from '../types';
+import { CardSkeleton } from './loading';
 import { ToolsHealthSummary } from './SystemStatus';
 
 const STATUS_LABEL: Record<BackendToolHealth, string> = {
@@ -24,11 +25,11 @@ export function ToolsPanel() {
   const entries = Object.entries(toolsHealth);
 
   if (!entries.length) {
-    return <div className="py-8 text-center text-sm text-slate-500">Loading OSINT tool status…</div>;
+    return <CardSkeleton count={4} />;
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 page-enter">
       <div>
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">OSINT Tool Health</h3>
         <ToolsHealthSummary />

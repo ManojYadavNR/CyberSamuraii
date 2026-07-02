@@ -1,0 +1,17 @@
+{
+  "tool_name": "blackbird",
+  "supported_inputs": ["username"],
+  "entity_types": ["account"],
+  "cost": "free",
+  "speed": "fast",
+  "confidence": 0.84,
+  "parallel_safe": true,
+  "priority": 18,
+  "parallel_group": "username_scan",
+  "catalog_only": false,
+  "enabled": true,
+  "adapter_key": "blackbird",
+  "osint_category": "Username",
+  "description": "Plugin stub — drop adapter implementation to enable",
+  "tags": ["osint-framework", "plugin"]
+}

@@ -8,6 +8,7 @@ from schemas.common import ToolStatus
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_PATH = PROJECT_ROOT / "config" / "tool_registry.json"
+VENV_BIN = PROJECT_ROOT / ".venv" / "bin"
 
 
 class ToolRegistry:
@@ -71,6 +72,35 @@ class ToolRegistry:
             path = PROJECT_ROOT / path
         return path
 
+    def resolve_executable(self, name: str) -> Path | None:
+        """Resolve CLI tool path — checks PATH, project venv, and relative paths."""
+        tool = self._registry.get(name)
+        if not tool:
+            return None
+        executable = tool.get("executable")
+        if not executable:
+            return None
+
+        exec_path = Path(executable)
+        if not exec_path.is_absolute():
+            project_path = PROJECT_ROOT / exec_path
+            if exec_path.suffix == ".py" and project_path.exists():
+                return project_path
+            which = shutil.which(str(executable))
+            if which:
+                return Path(which)
+            venv_path = VENV_BIN / executable
+            if venv_path.exists():
+                return venv_path
+            if project_path.exists():
+                return project_path
+            return None
+
+        if exec_path.exists():
+            return exec_path
+        which = shutil.which(str(executable))
+        return Path(which) if which else None
+
     def check_health(self, name: str) -> ToolStatus:
         tool = self._registry.get(name)
         if not tool:
@@ -84,18 +114,21 @@ class ToolRegistry:
         if not tool.get("installed", False):
             return ToolStatus.NOT_INSTALLED
 
+        if name == "ghunt":
+            from services.ghunt_session import ghunt_session_available
+
+            if not ghunt_session_available():
+                return ToolStatus.NOT_INSTALLED
+
         if tool.get("builtin"):
+            return ToolStatus.HEALTHY
+
+        resolved = self.resolve_executable(name)
+        if resolved and resolved.exists():
             return ToolStatus.HEALTHY
 
         executable = tool.get("executable")
         if executable:
-            exec_path = Path(executable)
-            if not exec_path.is_absolute():
-                exec_path = PROJECT_ROOT / exec_path
-            if exec_path.suffix == ".py" and exec_path.exists():
-                return ToolStatus.HEALTHY
-            if shutil.which(str(executable)) or exec_path.exists():
-                return ToolStatus.HEALTHY
             return ToolStatus.UNHEALTHY
 
         tool_path = tool.get("path")

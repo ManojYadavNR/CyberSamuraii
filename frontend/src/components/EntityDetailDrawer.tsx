@@ -32,8 +32,16 @@ export function EntityDetailDrawer() {
           <section>
             <h4 className="mb-2 text-xs font-semibold uppercase text-slate-500">Account Details</h4>
             <div className="intel-card space-y-2 p-4 text-sm">
+              {entity.displayName && <Row label="Name" value={entity.displayName} />}
               <Row label="Handle" value={entity.handle} mono />
               <Row label="Platform" value={entity.platform} />
+              {entity.bio && <Row label="Bio" value={entity.bio} />}
+              {entity.location && <Row label="Location" value={entity.location} />}
+              {entity.website && <Row label="Website" value={entity.website} mono />}
+              {entity.email && <Row label="Email" value={entity.email} mono />}
+              {entity.organizations && entity.organizations.length > 0 && (
+                <Row label="Organization" value={entity.organizations.join(', ')} />
+              )}
               {entity.url && <Row label="URL" value={entity.url} mono link />}
               <Row label="Cluster" value={entity.clusterId} mono />
             </div>

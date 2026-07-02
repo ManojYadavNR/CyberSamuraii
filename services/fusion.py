@@ -3,6 +3,14 @@ from typing import Any
 from schemas.fusion import FusionOutput
 from services.fusion_engine import fusion_engine
 
+_SKIP_PLATFORMS = frozenset({"_scan_summary"})
+
+
+def _norm_url(url: Any) -> str:
+    if not url or not isinstance(url, str):
+        return ""
+    return url.lower().rstrip("/")
+
 
 def fuse_results(normalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
@@ -14,8 +22,11 @@ def fuse_results(normalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged: list[dict[str, Any]] = []
 
     for entry in normalized:
-        url = entry.get("url")
         platform = entry.get("platform", "unknown")
+        if platform in _SKIP_PLATFORMS:
+            continue
+
+        url = entry.get("url")
         metadata = entry.get("metadata", {})
         email = metadata.get("email", "")
         hostname = metadata.get("hostname", "")
@@ -51,11 +62,11 @@ def fuse_results(normalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 continue
             seen_keys.add(dedupe_key)
 
-        if url:
-            url_key = url.lower().rstrip("/")
+        url_key = _norm_url(url)
+        if url_key:
             if url_key in seen_urls:
                 for existing in merged:
-                    if existing.get("url", "").lower().rstrip("/") == url_key:
+                    if _norm_url(existing.get("url")) == url_key:
                         sources = existing.setdefault("sources", [existing.get("source_tool")])
                         new_source = entry.get("source_tool")
                         if new_source and new_source not in sources:
@@ -64,7 +75,6 @@ def fuse_results(normalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         break
                 continue
             seen_urls.add(url_key)
-
         elif dedupe_key:
             pass
         elif platform in seen_keys and not metadata:

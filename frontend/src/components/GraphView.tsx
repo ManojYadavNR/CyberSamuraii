@@ -10,7 +10,7 @@ import { EmptyState } from './ui/EmptyState';
 
 cytoscape.use(coseBilkent);
 
-type NodeFilter = 'all' | 'Person' | 'Account' | 'Email' | 'Phone' | 'Domain' | 'Image';
+type NodeFilter = 'all' | string;
 type GraphMode = 'network' | 'community' | 'influence' | 'suspicious';
 
 export function GraphView() {
@@ -27,6 +27,7 @@ export function GraphView() {
   const [tooltip, setTooltip] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
+  const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
 
   const influenceMap = new Map(
     (result?.graph?.influence_scores ?? []).map((s) => [s.node_id, s.pagerank]),
@@ -42,61 +43,113 @@ export function GraphView() {
     if (!containerRef.current || !result || graphMode !== 'network') return;
 
     const elements: cytoscape.ElementDefinition[] = [];
-    const clusters = result.correlation?.clusters ?? [];
-    const selected = clusters.find((c) => c.account_cluster_id === selectedClusterId);
-    const targetClusters = clusterFilter === 'selected' && selected ? [selected] : clusters;
+    const kgNodes = result.graph?.knowledge_graph_nodes ?? [];
+    const kgEdges = result.graph?.knowledge_graph_edges ?? [];
+    const selectedPath = result.graph?.reasoning_paths?.find((p) => p.path_id === selectedPathId);
+    const highlightNodes = new Set(selectedPath?.node_ids ?? []);
 
-    targetClusters.forEach((cluster) => {
-      const personId = `person_${cluster.account_cluster_id}`;
-      if (nodeFilter === 'all' || nodeFilter === 'Person') {
+    if (kgNodes.length > 0) {
+      for (const node of kgNodes) {
+        if (nodeFilter !== 'all' && nodeFilter !== node.node_type) continue;
         elements.push({
-          data: { id: personId, label: 'Person', type: 'Person', size: nodeSize(personId, 'Person') },
+          data: {
+            id: node.node_id,
+            label: node.label || node.value || node.node_type,
+            type: node.node_type,
+            size: nodeSize(node.node_id, node.node_type),
+            highlighted: highlightNodes.has(node.node_id),
+          },
         });
       }
+      for (const edge of kgEdges) {
+        const src = kgNodes.find((n) => n.node_id === edge.source_id);
+        const tgt = kgNodes.find((n) => n.node_id === edge.target_id);
+        if (!src || !tgt) continue;
+        if (nodeFilter !== 'all' && nodeFilter !== src.node_type && nodeFilter !== tgt.node_type) continue;
+        const evidenceText = (edge.evidence ?? [])
+          .map((ev) => `${ev.strategy || ev.source_tool || 'evidence'}: ${ev.detail || ev.source_ref || ''} (${((ev.confidence ?? 0.5) * 100).toFixed(0)}%)`)
+          .join(' · ');
+        elements.push({
+          data: {
+            id: edge.edge_id,
+            source: edge.source_id,
+            target: edge.target_id,
+            label: edge.relation,
+            weight: edge.weight ?? 0.5,
+            evidence: evidenceText,
+            edgeWidth: Math.max(1.5, (edge.weight ?? 0.5) * 3),
+            highlighted: highlightNodes.has(edge.source_id) && highlightNodes.has(edge.target_id),
+          },
+        });
+      }
+      if (nodeFilter === 'all') {
+        result.graph?.suspicious_networks?.forEach((net, ni) => {
+          const hubId = `sus_${ni}`;
+          elements.push({ data: { id: hubId, label: net.network_type.replace(/_/g, ' '), type: 'Suspicious', size: 34 } });
+          net.members.slice(0, 6).forEach((m, mi) => {
+            const mid = `susm_${ni}_${mi}`;
+            elements.push({ data: { id: mid, label: m.slice(0, 16), type: 'Flagged', size: 20 } });
+            elements.push({ data: { source: hubId, target: mid, label: 'FLAG', edgeWidth: 1.5 } });
+          });
+        });
+      }
+    } else {
+      const clusters = result.correlation?.clusters ?? [];
+      const selected = clusters.find((c) => c.account_cluster_id === selectedClusterId);
+      const targetClusters = clusterFilter === 'selected' && selected ? [selected] : clusters;
 
-      const acctIds: string[] = [];
-      cluster.linked_accounts.forEach((acct, i) => {
-        const id = `acct_${cluster.account_cluster_id}_${i}`;
-        const email = acct.email;
-        acctIds.push(id);
-        if (nodeFilter === 'all' || nodeFilter === 'Account') {
+      targetClusters.forEach((cluster) => {
+        const personId = `person_${cluster.account_cluster_id}`;
+        if (nodeFilter === 'all' || nodeFilter === 'Person') {
           elements.push({
-            data: {
-              id,
-              label: acct.handle || acct.platform,
-              type: 'Account',
-              platform: acct.platform,
-              size: nodeSize(id, 'Account'),
-            },
+            data: { id: personId, label: 'Person', type: 'Person', size: nodeSize(personId, 'Person') },
           });
         }
-        if (nodeFilter === 'all' || nodeFilter === 'Person') {
-          elements.push({ data: { source: personId, target: id, label: 'OWNS' } });
-        }
-        if (email && (nodeFilter === 'all' || nodeFilter === 'Email')) {
-          const eid = `email_${id}`;
-          elements.push({ data: { id: eid, label: email, type: 'Email', size: 24 } });
-          elements.push({ data: { source: id, target: eid, label: 'USES_EMAIL' } });
-        }
-      });
 
-      for (let i = 0; i < acctIds.length; i++) {
-        for (let j = i + 1; j < acctIds.length; j++) {
-          elements.push({ data: { source: acctIds[i], target: acctIds[j], label: 'CONNECTED' } });
-        }
-      }
-    });
-
-    if (graphMode === 'network' || nodeFilter === 'all') {
-      result.graph?.suspicious_networks?.forEach((net, ni) => {
-        const hubId = `sus_${ni}`;
-        elements.push({ data: { id: hubId, label: net.network_type.replace(/_/g, ' '), type: 'Suspicious', size: 34 } });
-        net.members.slice(0, 6).forEach((m, mi) => {
-          const mid = `susm_${ni}_${mi}`;
-          elements.push({ data: { id: mid, label: m.slice(0, 16), type: 'Flagged', size: 20 } });
-          elements.push({ data: { source: hubId, target: mid, label: 'FLAG' } });
+        const acctIds: string[] = [];
+        cluster.linked_accounts.forEach((acct, i) => {
+          const id = `acct_${cluster.account_cluster_id}_${i}`;
+          const email = acct.email;
+          acctIds.push(id);
+          if (nodeFilter === 'all' || nodeFilter === 'Account') {
+            elements.push({
+              data: {
+                id,
+                label: acct.handle || acct.platform,
+                type: 'Account',
+                platform: acct.platform,
+                size: nodeSize(id, 'Account'),
+              },
+            });
+          }
+          if (nodeFilter === 'all' || nodeFilter === 'Person') {
+            elements.push({ data: { source: personId, target: id, label: 'OWNS', edgeWidth: 1.5 } });
+          }
+          if (email && (nodeFilter === 'all' || nodeFilter === 'Email')) {
+            const eid = `email_${id}`;
+            elements.push({ data: { id: eid, label: email, type: 'Email', size: 24 } });
+            elements.push({ data: { source: id, target: eid, label: 'USES_EMAIL', edgeWidth: 1.5 } });
+          }
         });
+
+        for (let i = 0; i < acctIds.length; i++) {
+          for (let j = i + 1; j < acctIds.length; j++) {
+            elements.push({ data: { source: acctIds[i], target: acctIds[j], label: 'CONNECTED', edgeWidth: 1.5 } });
+          }
+        }
       });
+
+      if (graphMode === 'network' || nodeFilter === 'all') {
+        result.graph?.suspicious_networks?.forEach((net, ni) => {
+          const hubId = `sus_${ni}`;
+          elements.push({ data: { id: hubId, label: net.network_type.replace(/_/g, ' '), type: 'Suspicious', size: 34 } });
+          net.members.slice(0, 6).forEach((m, mi) => {
+            const mid = `susm_${ni}_${mi}`;
+            elements.push({ data: { id: mid, label: m.slice(0, 16), type: 'Flagged', size: 20 } });
+            elements.push({ data: { source: hubId, target: mid, label: 'FLAG', edgeWidth: 1.5 } });
+          });
+        });
+      }
     }
 
     if (cyRef.current) cyRef.current.destroy();
@@ -127,6 +180,17 @@ export function GraphView() {
           style: { 'background-color': color },
         })),
         {
+          selector: 'edge[edgeWidth]',
+          style: {
+            width: 'data(edgeWidth)',
+            'line-color': '#334155',
+            'target-arrow-color': '#475569',
+            'target-arrow-shape': 'triangle',
+            'curve-style': 'bezier',
+            opacity: 0.65,
+          },
+        },
+        {
           selector: 'edge',
           style: {
             width: 1.5,
@@ -137,23 +201,30 @@ export function GraphView() {
             opacity: 0.65,
           },
         },
+        { selector: 'node[highlighted]', style: { 'border-width': 3, 'border-color': '#a855f7' } },
+        { selector: 'edge[highlighted]', style: { 'line-color': '#a855f7', 'target-arrow-color': '#a855f7', width: 3, opacity: 1 } },
         { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#22d3ee' } },
       ],
       layout: { name: 'cose-bilkent', randomize: true, animate: true, animationDuration: 500 } as cytoscape.LayoutOptions,
       minZoom: 0.15,
       maxZoom: 4,
-      wheelSensitivity: 0.3,
     });
 
     cy.on('mouseover', 'node', (e) => {
       const d = e.target.data();
       setTooltip(`${d.type}: ${d.label}`);
     });
-    cy.on('mouseout', 'node', () => setTooltip(''));
+    cy.on('mouseover', 'edge', (e) => {
+      const d = e.target.data();
+      const parts = [d.label];
+      if (d.evidence) parts.push(d.evidence);
+      setTooltip(parts.join(' — '));
+    });
+    cy.on('mouseout', 'node, edge', () => setTooltip(''));
 
     cyRef.current = cy;
     return () => { cy.destroy(); cyRef.current = null; };
-  }, [result, selectedClusterId, clusterFilter, nodeFilter, graphMode]);
+  }, [result, selectedClusterId, clusterFilter, nodeFilter, graphMode, selectedPathId]);
 
   const handleRebuild = async () => {
     if (!result?.fusion?.deduplicated_entities) return;
@@ -190,15 +261,22 @@ export function GraphView() {
   const influence = result.graph?.influence_scores ?? [];
   const communities = result.graph?.clusters ?? [];
   const suspicious = result.graph?.suspicious_networks ?? [];
+  const reasoningPaths = result.graph?.reasoning_paths ?? [];
+  const kgNodeTypes = [...new Set((result.graph?.knowledge_graph_nodes ?? []).map((n) => n.node_type))];
 
   const FILTERS: { id: NodeFilter; label: string }[] = [
     { id: 'all', label: 'Show All' },
-    { id: 'Person', label: 'Persons' },
-    { id: 'Account', label: 'Accounts' },
-    { id: 'Email', label: 'Emails' },
-    { id: 'Domain', label: 'Domains' },
-    { id: 'Phone', label: 'Phones' },
-    { id: 'Image', label: 'Images' },
+    ...kgNodeTypes.map((t) => ({ id: t, label: t })),
+    ...(kgNodeTypes.length === 0
+      ? [
+          { id: 'Person', label: 'Persons' },
+          { id: 'Account', label: 'Accounts' },
+          { id: 'Email', label: 'Emails' },
+          { id: 'Domain', label: 'Domains' },
+          { id: 'Phone', label: 'Phones' },
+          { id: 'Image', label: 'Images' },
+        ]
+      : []),
   ];
 
   return (
@@ -323,9 +401,33 @@ export function GraphView() {
       )}
 
       <p className="text-[10px] text-slate-600">
-        {result.graph?.node_count ?? 0} nodes · {result.graph?.edge_count ?? 0} edges
+        {result.graph?.knowledge_graph_nodes?.length ?? result.graph?.node_count ?? 0} nodes ·{' '}
+        {result.graph?.knowledge_graph_edges?.length ?? result.graph?.edge_count ?? 0} edges
+        {result.graph?.knowledge_graph_nodes?.length ? ' · knowledge graph' : ''}
         {clusterFilter === 'selected' && ' · filtered to selected cluster'}
       </p>
+
+      {reasoningPaths.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-slate-400">Reasoning paths — click to highlight on graph</p>
+          {reasoningPaths.slice(0, 8).map((p) => (
+            <button
+              key={p.path_id}
+              type="button"
+              onClick={() => setSelectedPathId(selectedPathId === p.path_id ? null : p.path_id)}
+              className={`w-full rounded-lg border px-3 py-2 text-left text-xs transition ${
+                selectedPathId === p.path_id
+                  ? 'border-purple-500/50 bg-purple-500/10 text-purple-100'
+                  : 'border-slate-800/80 bg-slate-900/40 text-slate-300 hover:border-slate-700'
+              }`}
+            >
+              <span className="font-mono text-cyan-400">{(p.confidence * 100).toFixed(0)}%</span> {p.summary}
+              <p className="mt-1 font-mono text-[10px] text-slate-500">{p.labels.join(' → ')}</p>
+              <p className="mt-0.5 text-[10px] text-slate-600">{p.relations.join(' → ')}</p>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

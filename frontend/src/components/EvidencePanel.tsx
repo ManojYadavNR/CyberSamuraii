@@ -8,7 +8,7 @@ export function EvidencePanel() {
   const result = useInvestigationStore((s) => s.result);
   const query = useInvestigationStore((s) => s.query);
   const updateResult = useInvestigationStore((s) => s.updateResult);
-  const [section, setSection] = useState<'entities' | 'tools' | 'email' | 'provenance'>('entities');
+  const [section, setSection] = useState<'entities' | 'tools' | 'email' | 'profile' | 'provenance'>('entities');
   const [reloading, setReloading] = useState(false);
 
   if (!result) {
@@ -17,7 +17,9 @@ export function EvidencePanel() {
 
   const entities = result.fusion?.deduplicated_entities ?? [];
   const evidenceMap = result.fusion?.evidence_map ?? {};
-  const isEmail = result.feature === 'email_intel';
+  const isEmail = result.feature === 'email_intel' || result.feature === 'multi'
+    || (result.confirmed_findings?.length ?? 0) > 0
+    || result.tool_results.some((t) => t.tool === 'holehe');
 
   const handleRecorrelate = async () => {
     setReloading(true);
@@ -34,8 +36,11 @@ export function EvidencePanel() {
     }
   };
 
+  const unifiedProfile = result.evidence_extraction?.unified_profile;
+
   const sections = [
     { id: 'entities' as const, label: `Entities (${entities.length})` },
+    ...(unifiedProfile ? [{ id: 'profile' as const, label: 'Unified Profile' }] : []),
     { id: 'tools' as const, label: `Tool Hits (${result.tool_results.length})` },
     ...(isEmail ? [{ id: 'email' as const, label: 'Email Intel' }] : []),
     { id: 'provenance' as const, label: 'Provenance' },
@@ -66,23 +71,46 @@ export function EvidencePanel() {
 
       {section === 'entities' && (
         <div className="max-h-[480px] space-y-2 overflow-y-auto">
-          {entities.map((ent) => (
+          {entities.map((ent) => {
+            const intel = ent.metadata?.extracted_intelligence as Record<string, unknown> | undefined;
+            const fieldCount = ent.metadata?.intelligence_field_count as number | undefined;
+            return (
             <div key={ent.entity_id ?? ent.value} className="intel-card p-4 text-sm">
               <div className="flex justify-between gap-3">
-                <span className="font-mono text-cyan-300">{ent.canonical_value || ent.value}</span>
+                <span className="font-mono text-cyan-300">
+                  {(intel?.display_name as string) || ent.canonical_value || ent.value}
+                </span>
                 <Badge variant="muted">{ent.type}</Badge>
               </div>
+              {intel?.bio ? (
+                <p className="mt-2 text-xs leading-relaxed text-slate-400">{String(intel.bio).slice(0, 160)}</p>
+              ) : null}
               <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
                 {ent.entity_id && <span className="font-mono">ID: {ent.entity_id.slice(0, 8)}…</span>}
                 <span>Fusion: {((ent.fusion_score ?? 0) * 100).toFixed(0)}%</span>
                 <span>Sources: {(ent.sources ?? []).join(', ') || '—'}</span>
+                {fieldCount ? <span>{fieldCount} extracted field(s)</span> : null}
               </div>
               {ent.aliases && ent.aliases.length > 0 && (
                 <div className="mt-2 text-xs text-slate-500">Aliases: {ent.aliases.join(', ')}</div>
               )}
             </div>
-          ))}
+          );})}
           {!entities.length && <p className="py-8 text-center text-sm text-slate-500">No fused entities</p>}
+        </div>
+      )}
+
+      {section === 'profile' && unifiedProfile && (
+        <div className="max-h-[480px] space-y-3 overflow-y-auto">
+          <div className="intel-card p-4 text-sm">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Multi-Platform Identity</h4>
+            <p className="mt-2 text-slate-300">
+              {unifiedProfile.verified_platform_count} verified platform(s) contributed to this profile.
+            </p>
+            <pre className="mt-3 max-h-96 overflow-auto rounded-lg bg-slate-900/80 p-3 font-mono text-xs text-slate-400">
+              {JSON.stringify(unifiedProfile, null, 2)}
+            </pre>
+          </div>
         </div>
       )}
 
