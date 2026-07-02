@@ -750,6 +750,7 @@ button:active:not(:disabled) {
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-behavior: smooth;
+  padding-bottom: 0.75rem;
   scrollbar-width: thin;
   scrollbar-color: rgba(100, 116, 139, 0.5) transparent;
 }
@@ -1099,18 +1100,27 @@ button:active:not(:disabled) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.5rem;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(30, 41, 59, 0.55);
 }
 
-.cases-assign__select {
-  min-width: 9rem;
-  border-radius: 0.45rem;
-  border: 1px solid rgba(51, 65, 85, 0.8);
-  background: rgba(15, 23, 42, 0.85);
-  padding: 0.25rem 0.45rem;
-  font-size: 0.6875rem;
-  color: #cbd5e1;
+.cases-assign__select-wrap {
+  min-width: 11.5rem;
+  max-width: 14rem;
+  flex: 1 1 11.5rem;
+}
+
+.cases-assign__select-wrap .intel-select-trigger--sm {
+  border-radius: 0.5rem;
+  background: linear-gradient(180deg, rgba(10, 16, 28, 0.98), rgba(8, 12, 22, 1));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.cases-assign__select-wrap .intel-select-trigger--open {
+  border-color: rgba(34, 211, 238, 0.5);
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.14);
 }
 
 .cases-input {
@@ -2256,3 +2266,508 @@ button:active:not(:disabled) {
   font-size: 0.6875rem;
   color: #f87171;
 }
+
+/* ── Intelligence Graph ── */
+.intel-graph {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.intel-graph__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.875rem;
+  border: 1px solid rgba(51, 65, 85, 0.75);
+  background:
+    radial-gradient(ellipse 70% 100% at 0% 0%, rgba(8, 145, 178, 0.1), transparent 55%),
+    linear-gradient(180deg, rgba(12, 18, 32, 0.95), rgba(8, 12, 22, 0.92));
+}
+
+.intel-graph__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.intel-graph__stat strong {
+  color: #67e8f9;
+  font-weight: 700;
+}
+
+.intel-graph__stat-sep {
+  width: 1px;
+  height: 0.85rem;
+  background: rgba(71, 85, 105, 0.7);
+}
+
+.intel-graph__query {
+  margin-left: 0.5rem;
+  font-size: 0.6875rem;
+  color: #64748b;
+}
+
+.intel-graph__query em {
+  font-style: normal;
+  color: #cbd5e1;
+}
+
+.intel-graph__modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.intel-graph__mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  background: rgba(15, 23, 42, 0.65);
+  padding: 0.35rem 0.7rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #94a3b8;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.intel-graph__mode:hover {
+  color: #e2e8f0;
+  border-color: rgba(100, 116, 139, 0.9);
+}
+
+.intel-graph__mode--active {
+  border-color: rgba(34, 211, 238, 0.45);
+  background: rgba(6, 182, 212, 0.14);
+  color: #67e8f9;
+}
+
+.intel-graph__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.intel-graph__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.intel-graph__filter {
+  border-radius: 0.45rem;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #64748b;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.intel-graph__filter:hover {
+  color: #cbd5e1;
+  background: rgba(30, 41, 59, 0.7);
+}
+
+.intel-graph__filter--active {
+  background: rgba(51, 65, 85, 0.9);
+  color: #f1f5f9;
+}
+
+.intel-graph__toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.intel-graph__seg {
+  display: flex;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  background: rgba(15, 23, 42, 0.75);
+  padding: 0.15rem;
+}
+
+.intel-graph__seg-btn {
+  border-radius: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.intel-graph__seg-btn--active {
+  background: rgba(6, 182, 212, 0.18);
+  color: #67e8f9;
+}
+
+.intel-graph__toggle {
+  border-radius: 0.45rem;
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  padding: 0.3rem 0.6rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.intel-graph__toggle--on {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+}
+
+.intel-graph__stage {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 1100px) {
+  .intel-graph__stage:has(.intel-graph__inspector) {
+    grid-template-columns: 1fr 16rem;
+  }
+}
+
+.intel-graph__canvas-wrap {
+  position: relative;
+  overflow: hidden;
+  min-height: 32rem;
+  height: min(68vh, 40rem);
+  border-radius: 1rem;
+  border: 1px solid rgba(51, 65, 85, 0.85);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(6, 182, 212, 0.06), transparent 45%),
+    radial-gradient(circle at 100% 100%, rgba(99, 102, 241, 0.05), transparent 40%),
+    #04070f;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02), 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+
+.intel-graph__canvas-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image:
+    radial-gradient(rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.intel-graph__canvas-wrap--fullscreen {
+  height: 100vh;
+  min-height: 100vh;
+  border-radius: 0;
+}
+
+.intel-graph__canvas {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  width: 100%;
+}
+
+.intel-graph__hover-tip {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  z-index: 5;
+  max-width: min(24rem, 80%);
+  border-radius: 0.65rem;
+  border: 1px solid rgba(51, 65, 85, 0.9);
+  background: rgba(8, 12, 22, 0.92);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: #a5f3fc;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+}
+
+.intel-graph__legend {
+  position: absolute;
+  left: 1rem;
+  bottom: 2.75rem;
+  z-index: 4;
+  display: flex;
+  max-width: calc(100% - 8rem);
+  flex-wrap: wrap;
+  gap: 0.45rem 0.65rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(51, 65, 85, 0.75);
+  background: rgba(8, 12, 22, 0.88);
+  padding: 0.45rem 0.65rem;
+  backdrop-filter: blur(6px);
+}
+
+.intel-graph__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.625rem;
+  color: #94a3b8;
+}
+
+.intel-graph__legend-dot {
+  height: 0.5rem;
+  width: 0.5rem;
+  border-radius: 9999px;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.intel-graph__canvas-actions {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 4;
+  display: flex;
+  gap: 0.35rem;
+}
+
+.intel-graph__fab {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(51, 65, 85, 0.85);
+  background: rgba(15, 23, 42, 0.9);
+  color: #cbd5e1;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.intel-graph__fab:hover {
+  border-color: rgba(34, 211, 238, 0.45);
+  color: #67e8f9;
+}
+
+.intel-graph__fab--accent:hover {
+  border-color: rgba(34, 211, 238, 0.55);
+  background: rgba(6, 182, 212, 0.18);
+}
+
+.intel-graph__hint {
+  position: absolute;
+  bottom: 0.55rem;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  font-size: 0.625rem;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.intel-graph__inspector {
+  border-radius: 0.875rem;
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  background: linear-gradient(180deg, rgba(12, 18, 32, 0.96), rgba(8, 12, 22, 0.94));
+  padding: 1rem;
+}
+
+.intel-graph__inspector-eyebrow {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.intel-graph__inspector-title {
+  margin-top: 0.35rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #f8fafc;
+  word-break: break-word;
+}
+
+.intel-graph__inspector-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+  font-size: 0.6875rem;
+  color: #94a3b8;
+}
+
+.intel-graph__inspector-id {
+  margin-top: 0.65rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.625rem;
+  color: #64748b;
+  word-break: break-all;
+}
+
+.intel-graph__inspector-clear {
+  margin-top: 0.85rem;
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  padding: 0.4rem 0.65rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.intel-graph__inspector-clear:hover {
+  color: #e2e8f0;
+  border-color: rgba(100, 116, 139, 0.9);
+}
+
+.intel-graph__panel-scroll {
+  max-height: 32rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding-right: 0.15rem;
+}
+
+.intel-graph__card,
+.intel-graph__threat-card {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  background: rgba(12, 18, 32, 0.85);
+  padding: 0.85rem 1rem;
+}
+
+.intel-graph__threat-card {
+  border-color: rgba(248, 113, 113, 0.25);
+  background: rgba(127, 29, 29, 0.12);
+}
+
+.intel-graph__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  text-align: left;
+}
+
+.intel-graph__table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #0a101c;
+}
+
+.intel-graph__table th {
+  padding: 0.65rem 0.85rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.8);
+}
+
+.intel-graph__table td {
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid rgba(30, 41, 59, 0.65);
+}
+
+.intel-graph__paths {
+  border-radius: 0.875rem;
+  border: 1px solid rgba(168, 85, 247, 0.22);
+  background: linear-gradient(180deg, rgba(88, 28, 135, 0.1), rgba(12, 18, 32, 0.85));
+  padding: 0.85rem 1rem;
+}
+
+.intel-graph__paths-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin-bottom: 0.65rem;
+}
+
+.intel-graph__paths-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #e9d5ff;
+}
+
+.intel-graph__paths-sub {
+  margin-top: 0.15rem;
+  font-size: 0.6875rem;
+  color: #94a3b8;
+}
+
+.intel-graph__paths-rail {
+  display: flex;
+  gap: 0.55rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  scroll-snap-type: x mandatory;
+}
+
+.intel-graph__path-card {
+  flex: 0 0 min(18rem, 85vw);
+  scroll-snap-align: start;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  background: rgba(15, 23, 42, 0.75);
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.intel-graph__path-card:hover {
+  border-color: rgba(168, 85, 247, 0.35);
+}
+
+.intel-graph__path-card--active {
+  border-color: rgba(192, 132, 252, 0.55);
+  background: rgba(88, 28, 135, 0.18);
+}
+
+.intel-graph__path-confidence {
+  display: inline-flex;
+  border-radius: 9999px;
+  background: rgba(6, 182, 212, 0.15);
+  padding: 0.1rem 0.45rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: #67e8f9;
+}
+
+.intel-graph__path-summary {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.intel-graph__path-chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.45rem;
+}
+
+.intel-graph__path-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0.35rem;
+  background: rgba(30, 41, 59, 0.85);
+  padding: 0.15rem 0.4rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.625rem;
+  color: #cbd5e1;
+}
+
+.intel-graph__path-arrow {
+  margin-left: 0.25rem;
+  color: #64748b;
+}
+

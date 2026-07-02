@@ -1,7 +1,10 @@
+import { LuNetwork } from 'react-icons/lu';
 import { useInvestigationStore } from '../store/investigationStore';
 import { buildOsintIntelSections, type OsintIntelItem } from '../lib/osintIntelView';
 import { leadVisualsFromResult } from '../lib/leadVisualView';
 import { resolveMediaUrl } from '../lib/displayFields';
+import { PageSectionHeader } from './PageSectionHeader';
+import { useCompactPageHeader } from '../hooks/useCompactPageHeader';
 import { LeadCardsPanel } from './LeadCardsPanel';
 
 function IntelCard({ item }: { item: OsintIntelItem }) {
@@ -144,70 +147,79 @@ export function OsintFrameworkPage() {
   const identity = result?.identity_profile;
   const sections = buildOsintIntelSections(result, identity, query);
   const leads = leadVisualsFromResult(result, query);
+  const sectionCount = sections.reduce((n, s) => n + s.items.length, 0);
+  const { scrollRef, headerCompact } = useCompactPageHeader([query, status, sectionCount, leads.length]);
 
-  if (!result && status === 'idle') {
-    return (
-      <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/20 p-8 text-center text-slate-400">
-        Run an investigation to populate the OSINT Framework intelligence view.
-      </div>
-    );
-  }
+  const subtitle = !result && status === 'idle'
+    ? 'Run an investigation to populate registry-routed intelligence'
+    : `Registry-routed collection for ${query || '—'} — photos, bios, events, and articles`;
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3">
-        <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-cyan-300">OSINT Framework View</h2>
-        <p className="mt-1 text-xs text-slate-400">
-          Registry-routed collection for <span className="text-slate-200">{query || '—'}</span> — photos, bios, events, and articles with source links.
-        </p>
-        {identity?.primary_bio && (
-          <p className="mt-2 text-sm text-slate-300">
-            <span className="text-slate-500">Bio: </span>{identity.primary_bio}
-          </p>
-        )}
-      </div>
-
-      <section className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-        <header className="mb-4 border-b border-emerald-500/10 pb-2">
-          <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-emerald-300">
-            Lead Generation — Visual Intel
-          </h3>
-          <p className="mt-1 text-xs text-slate-400">
-            Hackathon wins, college posts, news articles — with photos, thumbnails, or page screenshots.
-            {result?.evidence_extraction?.lead_screenshots_captured
-              ? ` · ${result.evidence_extraction.lead_screenshots_captured} page screenshot(s) captured`
-              : ''}
-          </p>
-        </header>
-        <LeadCardsPanel leads={leads} />
-      </section>
-
-      <div className="grid gap-5 lg:grid-cols-2">
-        {sections.map((section) => (
-          <section key={section.id} className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-4">
-            <header className="mb-3 flex items-center justify-between border-b border-slate-800/60 pb-2">
-              <div>
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <span>{section.icon}</span>
-                  {section.title}
-                </h3>
-                {section.description && <p className="mt-0.5 text-[10px] text-slate-500">{section.description}</p>}
-              </div>
-              <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
-                {section.items.length}
-              </span>
-            </header>
-            {section.items.length === 0 ? (
-              <p className="text-xs text-slate-600">No findings in this category yet.</p>
-            ) : (
-              <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                {section.items.map((item) => (
-                  <IntelCard key={item.id} item={item} />
-                ))}
+    <div className="intel-page--contained">
+      <PageSectionHeader
+        title="OSINT Framework"
+        subtitle={subtitle}
+        count={sectionCount || undefined}
+        compact={headerCompact}
+        icon={LuNetwork}
+      />
+      <div ref={scrollRef} className="intel-page__scroll">
+        {!result && status === 'idle' ? (
+          <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/20 p-8 text-center text-slate-400">
+            Run an investigation to populate the OSINT Framework intelligence view.
+          </div>
+        ) : (
+          <div className="space-y-6 pb-2">
+            {identity?.primary_bio && (
+              <div className="intel-panel rounded-xl px-4 py-3 text-sm text-slate-300">
+                <span className="text-slate-500">Bio: </span>{identity.primary_bio}
               </div>
             )}
-          </section>
-        ))}
+
+            <section className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <header className="mb-4 border-b border-emerald-500/10 pb-2">
+                <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-emerald-300">
+                  Lead Generation — Visual Intel
+                </h3>
+                <p className="mt-1 text-xs text-slate-400">
+                  Hackathon wins, college posts, news articles — with photos, thumbnails, or page screenshots.
+                  {result?.evidence_extraction?.lead_screenshots_captured
+                    ? ` · ${result.evidence_extraction.lead_screenshots_captured} page screenshot(s) captured`
+                    : ''}
+                </p>
+              </header>
+              <LeadCardsPanel leads={leads} />
+            </section>
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              {sections.map((section) => (
+                <section key={section.id} className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-4">
+                  <header className="mb-3 flex items-center justify-between border-b border-slate-800/60 pb-2">
+                    <div>
+                      <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+                        <span>{section.icon}</span>
+                        {section.title}
+                      </h3>
+                      {section.description && <p className="mt-0.5 text-[10px] text-slate-500">{section.description}</p>}
+                    </div>
+                    <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
+                      {section.items.length}
+                    </span>
+                  </header>
+                  {section.items.length === 0 ? (
+                    <p className="text-xs text-slate-600">No findings in this category yet.</p>
+                  ) : (
+                    <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                      {section.items.map((item) => (
+                        <IntelCard key={item.id} item={item} />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

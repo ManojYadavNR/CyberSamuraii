@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
-import { LuFolderOpen, LuPlus } from 'react-icons/lu';
+import { useEffect, useMemo, useState } from 'react';
+import { LuFolderOpen, LuPlus, LuUser } from 'react-icons/lu';
 import {
   archiveCase, assignCase, closeCase, createCase, deleteCase, fetchCases, fetchUsers, transferCase,
 } from '../api/enterprise';
 import { CaseEditModal, casePriorityClass, caseStatusClass, formatCaseDate } from '../components/CaseEditModal';
 import { PageSectionHeader } from '../components/PageSectionHeader';
+import { IntelSelect } from '../components/ui/IntelSelect';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 import { hasPermission } from '../lib/permissions';
@@ -34,6 +35,16 @@ export function CasesPage() {
   const canEdit = hasPermission(role, 'edit_case');
   const canClose = hasPermission(role, 'close_case');
   const canDelete = hasPermission(role, 'delete_case');
+
+  const investigatorOptions = useMemo(
+    () => users.map((u) => ({
+      value: u.user_id,
+      label: u.name,
+      hint: u.role.replace(/_/g, ' '),
+      icon: <LuUser className="h-3.5 w-3.5" aria-hidden />,
+    })),
+    [users],
+  );
 
   const reload = () => {
     setLoading(true);
@@ -163,19 +174,21 @@ export function CasesPage() {
                         </div>
                         {canAssign && (
                           <div className="cases-assign">
-                            <select
+                            <IntelSelect
                               value={assignDraft[c.case_id] || ''}
-                              onChange={(e) => setAssignDraft((prev) => ({ ...prev, [c.case_id]: e.target.value }))}
-                              className="cases-assign__select"
-                            >
-                              <option value="">Assign investigator…</option>
-                              {users.map((u) => <option key={u.user_id} value={u.user_id}>{u.name}</option>)}
-                            </select>
+                              onChange={(userId) => setAssignDraft((prev) => ({ ...prev, [c.case_id]: userId }))}
+                              options={investigatorOptions}
+                              placeholder="Assign investigator…"
+                              size="sm"
+                              className="cases-assign__select-wrap"
+                              maxMenuHeight={260}
+                              align="right"
+                            />
                             <button
                               type="button"
                               disabled={!assignDraft[c.case_id]}
                               onClick={() => assignCase(c.case_id, assignDraft[c.case_id]).then(reload)}
-                              className="cases-action"
+                              className="cases-action cases-action--primary"
                             >
                               Assign
                             </button>

@@ -74,7 +74,8 @@ export function AppShell() {
     default: content = <DashboardPage />;
   }
 
-  const scrollContained = page === 'audit' || page === 'admin' || page === 'case-workspace' || page === 'dashboard' || page === 'cases';
+  const scrollContained = page === 'audit' || page === 'admin' || page === 'case-workspace' || page === 'dashboard' || page === 'cases'
+    || page === 'pending-approvals' || page === 'intel-api' || page === 'tools' || page === 'osint-framework';
 
   return (
     <div className="h-screen overflow-hidden bg-[#070b14] text-slate-200">
