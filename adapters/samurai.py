@@ -13,7 +13,7 @@ from services.samurai_bridge import samurai_available, scrape_samurai
 
 class SamuraiAdapter(BaseAdapter):
     name = "samurai"
-    default_timeout = 360.0
+    default_timeout = 240.0
     max_retries = 0
 
     def verify_tool(self) -> tuple[bool, str | None]:

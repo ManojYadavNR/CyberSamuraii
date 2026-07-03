@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { externalVisitUrl } from './socialUrls';
 import { friendlyLinkLabel, isLikelyVideoUrl, resolveMediaUrl, resolveVideoUrl } from './mediaUrl';
 import { isVideoUrl, pickMediaUrl } from './samuraiIntelView';
 
@@ -15,14 +16,15 @@ function formatLabel(key: string): string {
 }
 
 function ExternalLink({ url }: { url: string }) {
+  const href = externalVisitUrl(url) || url;
   return (
     <a
-      href={url}
+      href={href}
       target="_blank"
-      rel="noreferrer"
+      rel="noreferrer noopener"
       className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20"
     >
-      {friendlyLinkLabel(url)} ↗
+      {friendlyLinkLabel(href)} ↗
     </a>
   );
 }
@@ -113,17 +115,20 @@ export function SamuraiLinksRow({ links }: { links: Record<string, unknown> }) {
   if (!entries.length) return null;
   return (
     <div className="flex flex-wrap gap-2">
-      {entries.map(([key, url]) => (
+      {entries.map(([key, url]) => {
+        const href = externalVisitUrl(String(url)) || String(url);
+        return (
         <a
           key={key}
-          href={String(url)}
+          href={href}
           target="_blank"
-          rel="noreferrer"
+          rel="noreferrer noopener"
           className="inline-flex items-center rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20"
         >
           {formatLabel(key)} ↗
         </a>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -135,8 +140,16 @@ export function badgeForValue(value: unknown): string {
   return '1 value';
 }
 
+function lookasideThumbnailUrl(url: string): string | undefined {
+  const low = url.toLowerCase();
+  if (!low.includes('lookaside.fbsbx.com')) return undefined;
+  if (low.includes('get_thumbnail=1')) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}get_thumbnail=1`;
+}
+
 export function mediaPreviewFromRecord(record: Record<string, unknown>): string | undefined {
   const thumb = pickMediaUrl(
+    record.preview_url as string,
     record.thumbnail_live_url as string,
     record.thumbnail as string,
     record.image_url as string,
@@ -150,12 +163,39 @@ export function mediaPreviewFromRecord(record: Record<string, unknown>): string 
     record.url as string,
     record.profile_pic_url as string,
   );
-  // Lookaside full-size URLs often need Googlebot; thumbnails are more reliable in-app.
+  const synthesizedThumb = primary ? lookasideThumbnailUrl(primary) : undefined;
+  const bestThumb = thumb || synthesizedThumb;
   const primaryLow = (primary || '').toLowerCase();
-  if (primaryLow.includes('lookaside.fbsbx.com') && thumb) {
-    return thumb;
+  if (primaryLow.includes('lookaside.fbsbx.com') && bestThumb) {
+    return bestThumb;
   }
-  return primary || thumb;
+  return primary || bestThumb;
+}
+
+export function mediaPreviewUrlCandidates(
+  record: Record<string, unknown>,
+  opts?: { isVideo?: boolean },
+): string[] {
+  if (opts?.isVideo) {
+    const poster = posterFromRecord(record);
+    return poster ? [poster] : [];
+  }
+  const primary = pickMediaUrl(
+    record.preview_url as string,
+    record.display_live_url as string,
+    record.display_url as string,
+    record.live_url as string,
+    record.url as string,
+    record.profile_pic_url as string,
+  );
+  const thumb = pickMediaUrl(
+    record.thumbnail_live_url as string,
+    record.thumbnail as string,
+    record.image_url as string,
+  );
+  const synthesized = primary ? lookasideThumbnailUrl(primary) : undefined;
+  const ordered = [thumb, synthesized, primary].filter(Boolean) as string[];
+  return [...new Set(ordered)];
 }
 
 export function videoSourceFromPost(post: Record<string, unknown>): string | undefined {

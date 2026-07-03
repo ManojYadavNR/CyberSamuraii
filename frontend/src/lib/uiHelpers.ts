@@ -84,6 +84,12 @@ function isVerifiedFinding(item: Record<string, unknown>): boolean {
 }
 
 export function toolFindingsCount(result: InvestigationResult | null, toolName: string): number {
+  if (toolName === 'multi_input') {
+    const branches = result?.tool_results?.filter((t) => t.tool !== 'multi_input') ?? [];
+    if (branches.length) return branches.length;
+    if (result?.fusion?.deduplicated_entities?.length) return result.fusion.deduplicated_entities.length;
+    return 0;
+  }
   const tr = result?.tool_results?.find((t) => t.tool === toolName);
   if (tr?.data?.length) {
     const rows = tr.data.filter((item) => (item as Record<string, unknown>).platform !== '_scan_summary');
@@ -121,6 +127,8 @@ export function toolLiveFindingsCount(
 }
 
 export function toolEmptyLabel(toolName: string): string {
+  if (toolName === 'multi_input') return 'Branches completed — see tool results below';
+  if (toolName === 'samurai') return 'No social profiles resolved';
   if (toolName === 'google_dorking') return 'No web results found';
   if (toolName === 'platform_probe') return 'No live profiles on major platforms';
   if (toolName === 'nexfil' || toolName === 'blackbird') return 'No profiles found';

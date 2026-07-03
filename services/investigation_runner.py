@@ -1042,6 +1042,8 @@ class InvestigationRunner:
             elif feature == "infra_intel" and tool == "phoneinfoga":
                 from orchestrator.parallel_config import PHONEINFOGA_WALL_SEC
                 tool_timeout = max(tool_timeout, PHONEINFOGA_WALL_SEC)
+            elif tool == "samurai":
+                tool_timeout = max(tool_timeout, 300.0)
             progress_cb = on_adapter_progress if tool in USERNAME_SCAN_TOOLS else None
             # Samurai parses multi-field seeds (username | email | name) — scan_query strips pipes.
             tool_query = query if tool == "samurai" else scan_query

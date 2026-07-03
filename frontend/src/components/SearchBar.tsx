@@ -22,7 +22,7 @@ type SpeedMode = 'standard' | 'fast' | 'samurai' | 'deep';
 const SPEED_OPTIONS: { value: SpeedMode; label: string; hint: string; icon: string; imageOnly?: boolean }[] = [
   { value: 'standard', label: 'Standard', hint: '~5 min · balanced collection', icon: '⚡' },
   { value: 'fast', label: 'Quick', hint: '~2 min · seed only, no expansion', icon: '🚀' },
-  { value: 'samurai', label: 'Social (Samurai)', hint: '~2 min · Instagram & Facebook', icon: '📲' },
+  { value: 'samurai', label: 'Social (Samurai)', hint: '~1 min · Instagram & Facebook', icon: '📲' },
   { value: 'deep', label: 'Deep', hint: '10+ min · up to 20 expansion hops', icon: '🔬' },
 ];
 

@@ -55,6 +55,8 @@ export interface SamuraiInstagramProfile {
   stats?: Record<string, number>;
   recent_posts?: SamuraiInstagramPost[];
   reels?: SamuraiInstagramPost[];
+  similar_profiles?: SamuraiFacebookSimilarProfile[];
+  scrape_limited?: boolean;
   api_response?: Record<string, unknown>;
   notes?: Record<string, string | null | undefined>;
 }
@@ -118,11 +120,30 @@ export interface SamuraiSocialIntel {
 export function samuraiIntelFromResult(result: InvestigationResult | null): SamuraiSocialIntel | null {
   if (!result) return null;
 
+  const fromTool = _samuraiIntelFromToolResults(result);
   const fromEvidence = result.evidence_extraction?.samurai_social_intel as SamuraiSocialIntel | undefined;
+
   if (fromEvidence && (fromEvidence.instagram || fromEvidence.facebook)) {
-    return fromEvidence;
+    return {
+      ...fromEvidence,
+      instagram: fromEvidence.instagram ?? fromTool?.instagram ?? null,
+      facebook: fromEvidence.facebook ?? fromTool?.facebook ?? null,
+      facebook_slug: fromEvidence.facebook_slug ?? fromTool?.facebook_slug,
+      facebook_resolution: fromEvidence.facebook_resolution ?? fromTool?.facebook_resolution,
+      facebook_error: fromEvidence.facebook_error ?? fromTool?.facebook_error,
+      instagram_error: fromEvidence.instagram_error ?? fromTool?.instagram_error,
+      cross_platform: fromEvidence.cross_platform ?? fromTool?.cross_platform,
+      username: fromEvidence.username ?? fromTool?.username,
+      seed_query: fromEvidence.seed_query ?? fromTool?.seed_query,
+      has_instagram: Boolean(fromEvidence.instagram ?? fromTool?.instagram),
+      has_facebook: Boolean(fromEvidence.facebook ?? fromTool?.facebook),
+    };
   }
 
+  return fromTool;
+}
+
+function _samuraiIntelFromToolResults(result: InvestigationResult): SamuraiSocialIntel | null {
   const tr = result.tool_results?.find((t) => t.tool === 'samurai' && t.success);
   if (!tr?.data?.length) return null;
 
@@ -170,6 +191,8 @@ export function postPreviewUrl(post: SamuraiInstagramPost): string | undefined {
   return pickMediaUrl(
     post.display_live_url,
     post.display_url,
+    post.media?.[0]?.display_url,
+    post.media?.[0]?.thumbnail,
     post.media?.[0]?.live_url,
     post.media?.[0]?.url,
     post.media?.[0]?.display_live_url,
@@ -270,5 +293,75 @@ export function normalizeComments(raw: unknown): SamuraiComment[] {
       };
     })
     .filter((c) => c.text || c.username);
+}
+
+/** Stable key for deduplicating Samurai media rows (media_id, lookaside URL, or CDN path). */
+export function samuraiMediaKey(item: Record<string, unknown>): string {
+  const mediaId = item.media_id;
+  if (mediaId != null && String(mediaId).trim()) {
+    return `mid:${String(mediaId).trim()}`;
+  }
+  const url = pickMediaUrl(
+    item.url as string,
+    item.live_url as string,
+    item.thumbnail as string,
+    item.display_url as string,
+  );
+  if (url) {
+    const match = url.match(/media_id=(\d+)/i);
+    if (match) return `mid:${match[1]}`;
+    return `url:${url.split('?')[0]}`;
+  }
+  return `misc:${String(item.type || 'item')}:${String(item.owner_username || '')}`;
+}
+
+export function dedupeSamuraiMedia(items: Record<string, unknown>[]): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  const out: Record<string, unknown>[] = [];
+  for (const item of items) {
+    const key = samuraiMediaKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+export function facebookItemVisitUrl(
+  item: Record<string, unknown>,
+  profileFallback?: string,
+): string | undefined {
+  const profile = pickMediaUrl(
+    item.profile_url as string,
+    profileFallback,
+  );
+  const mediaId = item.media_id ?? (() => {
+    const url = pickMediaUrl(item.url as string, item.live_url as string) || '';
+    const match = url.match(/media_id=(\d+)/i);
+    return match ? match[1] : undefined;
+  })();
+  if (mediaId) {
+    return `https://www.facebook.com/photo/?fbid=${mediaId}`;
+  }
+  const page = pickMediaUrl(item.live_url as string, item.url as string);
+  if (page && (page.includes('facebook.com') || page.includes('fb.com'))) {
+    return page;
+  }
+  return profile;
+}
+
+/** Hide lookaside rows that were never probed — they return HTML and break in-app previews. */
+export function isDisplayableSamuraiMedia(item: Record<string, unknown>): boolean {
+  if (item.verified === true) return true;
+  const url = pickMediaUrl(
+    item.preview_url as string,
+    item.thumbnail as string,
+    item.display_url as string,
+    item.url as string,
+    item.live_url as string,
+  );
+  if (!url) return false;
+  if (!url.toLowerCase().includes('lookaside.fbsbx.com')) return true;
+  return false;
 }
 

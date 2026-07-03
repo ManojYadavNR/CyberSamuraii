@@ -270,7 +270,6 @@ export function CaseWorkspacePage() {
               </div>
             </section>
           </div>
-          <FloatingCopilot />
           <EntityDetailDrawer />
         </div>
       )}
@@ -406,6 +405,7 @@ export function CaseWorkspacePage() {
       )}
         </div>
       </div>
+      <FloatingCopilot />
     </div>
   );
 }
