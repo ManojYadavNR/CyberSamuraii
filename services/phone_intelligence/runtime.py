@@ -22,9 +22,12 @@ def _project_root() -> Path:
 
 
 def find_phoneinfoga_binary() -> Path | None:
+    root = _project_root()
     candidates = [
-        _project_root() / "external_tools" / "bin" / "phoneinfoga",
-        _project_root() / "phoneNumber" / "phoneinfoga" / "bin" / "phoneinfoga",
+        root / "external_tools" / "bin" / "phoneinfoga.exe",
+        root / "external_tools" / "bin" / "phoneinfoga",
+        root / "phoneNumber" / "phoneinfoga" / "bin" / "phoneinfoga.exe",
+        root / "phoneNumber" / "phoneinfoga" / "bin" / "phoneinfoga",
     ]
     for path in candidates:
         if path.is_file():

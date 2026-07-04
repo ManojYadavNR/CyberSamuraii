@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -51,13 +52,16 @@ def _tool_root(name: str) -> Path:
 
 
 def _bin(name: str) -> Path | None:
-    path = BIN / name
-    if path.exists():
-        return path
+    for candidate in (BIN / name, BIN / f"{name}.exe"):
+        if candidate.is_file():
+            return candidate
     if name == "phoneinfoga":
-        bundled = ROOT / "phoneNumber" / "phoneinfoga" / "bin" / "phoneinfoga"
-        if bundled.exists():
-            return bundled
+        for candidate in (
+            ROOT / "phoneNumber" / "phoneinfoga" / "bin" / "phoneinfoga",
+            ROOT / "phoneNumber" / "phoneinfoga" / "bin" / "phoneinfoga.exe",
+        ):
+            if candidate.is_file():
+                return candidate
     return None
 
 
@@ -301,7 +305,8 @@ class GhuntAdapter(BaseAdapter):
         if not script.exists():
             return ToolResult(tool=self.name, success=False, error="GHunt not found")
 
-        out_path = Path(f"/tmp/ghunt_{re.sub(r'[^\w.-]', '_', query)}.json")
+        safe_query = re.sub(r"[^\w.-]", "_", query)
+        out_path = Path(tempfile.gettempdir()) / f"ghunt_{safe_query}.json"
         cmd = ["python3", str(script), "email", query, "--json", str(out_path)]
         rc, stdout, stderr = await self._run_subprocess(cmd, cwd=str(root))
 

@@ -8,7 +8,9 @@ from schemas.common import ToolStatus
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_PATH = PROJECT_ROOT / "config" / "tool_registry.json"
-VENV_BIN = PROJECT_ROOT / ".venv" / "bin"
+_VENV_SCRIPTS = PROJECT_ROOT / ".venv" / "Scripts"
+_VENV_BIN = PROJECT_ROOT / ".venv" / "bin"
+VENV_BIN = _VENV_SCRIPTS if _VENV_SCRIPTS.is_dir() else _VENV_BIN
 
 
 class ToolRegistry:
@@ -89,15 +91,23 @@ class ToolRegistry:
             which = shutil.which(str(executable))
             if which:
                 return Path(which)
-            venv_path = VENV_BIN / executable
-            if venv_path.exists():
-                return venv_path
-            if project_path.exists():
-                return project_path
+            # Windows: registry may list bare names while binaries are *.exe
+            for candidate in (
+                project_path,
+                project_path.with_suffix(".exe") if not project_path.suffix else project_path,
+                PROJECT_ROOT / f"{executable}.exe",
+                VENV_BIN / executable,
+                VENV_BIN / f"{executable}.exe",
+            ):
+                if candidate.exists():
+                    return candidate
             return None
 
         if exec_path.exists():
             return exec_path
+        exe_path = exec_path.with_suffix(".exe") if not exec_path.suffix else exec_path
+        if exe_path.exists():
+            return exe_path
         which = shutil.which(str(executable))
         return Path(which) if which else None
 
@@ -117,8 +127,9 @@ class ToolRegistry:
         if name == "ghunt":
             from services.ghunt_session import ghunt_session_available
 
+            # Package may be installed while Google login session is still missing.
             if not ghunt_session_available():
-                return ToolStatus.NOT_INSTALLED
+                return ToolStatus.MISSING_API_KEY
 
         if tool.get("builtin"):
             return ToolStatus.HEALTHY

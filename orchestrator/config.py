@@ -63,11 +63,11 @@ ADAPTER_MAP: dict[str, type[BaseAdapter]] = {
 }
 
 DEFAULT_TIMEOUTS: dict[str, float] = {
-    "username_search": 180.0,
-    "email_intel": 90.0,
-    "domain_intel": 90.0,
+    "username_search": 60.0,
+    "email_intel": 60.0,
+    "domain_intel": 60.0,
     "infra_intel": 45.0,
-    "image_intel": 300.0,
+    "image_intel": 120.0,
 }
 
 # Per-tool minimum budgets on CPU (first model load can take several minutes).
@@ -84,7 +84,7 @@ TOOL_TIMEOUTS: dict[str, float] = {
     "ghunt": 90.0,
     "gravatar": 30.0,
     "phoneinfoga": 120.0,
-    "phone_social_intel": 360.0,
+    "phone_social_intel": 90.0,
     "subfinder": 90.0,
     "amass": 120.0,
     "dnsrecon": 90.0,

@@ -244,10 +244,16 @@ def scan_phone_all(number: str, *, include_web: bool = True) -> dict[str, Any]:
     env = apply_phone_env()
     options = dict(env)
 
-    number_info = fetch_phoneinfoga_number_info(number)
-    api_reachable = number_info is not None
+    number_info = parse_phone_number(number)
+    api_reachable = False
     if not number_info:
-        number_info = parse_phone_number(number)
+        number_info = fetch_phoneinfoga_number_info(number)
+        if number_info:
+            api_reachable = True
+    else:
+        # If parsed locally, still check if API is reachable by hitting it with the parsed number
+        api_info = fetch_phoneinfoga_number_info(number_info.get("international", number))
+        api_reachable = api_info is not None
     if not number_info:
         return {"success": False, "error": "Invalid or unparsable phone number"}
 
@@ -328,9 +334,9 @@ def scan_phone_social_only(number: str) -> dict[str, Any]:
     ensure_phone_stack()
     apply_phone_env()
 
-    number_info = fetch_phoneinfoga_number_info(number)
+    number_info = parse_phone_number(number)
     if not number_info:
-        number_info = parse_phone_number(number)
+        number_info = fetch_phoneinfoga_number_info(number)
     if not number_info:
         return {"success": False, "error": "Invalid or unparsable phone number"}
 

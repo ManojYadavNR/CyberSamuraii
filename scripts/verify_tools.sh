@@ -17,8 +17,19 @@ fail() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 warn() { echo "  ⚠ $1"; WARN=$((WARN + 1)); }
 
 if [ -d "$VENV_DIR" ]; then
-    # shellcheck disable=SC1091
-    source "$VENV_DIR/bin/activate"
+    if [ -f "$VENV_DIR/Scripts/activate" ]; then
+        # shellcheck disable=SC1091
+        source "$VENV_DIR/Scripts/activate"
+    elif [ -f "$VENV_DIR/bin/activate" ]; then
+        # shellcheck disable=SC1091
+        source "$VENV_DIR/bin/activate"
+    fi
+fi
+
+if command -v python3 &>/dev/null; then
+    PYTHON=python3
+else
+    PYTHON=python
 fi
 
 export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"

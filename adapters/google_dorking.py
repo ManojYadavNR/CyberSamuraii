@@ -49,10 +49,11 @@ class GoogleDorkingAdapter(BaseAdapter):
         self._last_query = query
         budget = float(timeout or self.default_timeout)
         try:
-            result = await self._execute(query, budget_sec=budget)
+            # Enforce a hard timeout slightly larger than budget to give _execute time to return partials
+            result = await asyncio.wait_for(self._execute(query, budget_sec=budget), timeout=budget + 5.0)
             result.execution_time_ms = (time.monotonic() - start) * 1000
             return result
-        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+        except (asyncio.TimeoutError, asyncio.CancelledError, TimeoutError) as exc:
             partial = self._partial_tool_result()
             if partial:
                 partial.execution_time_ms = (time.monotonic() - start) * 1000

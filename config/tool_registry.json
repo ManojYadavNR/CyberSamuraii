@@ -79,7 +79,7 @@
   "samurai": {
     "path": "./samurai",
     "executable": "./samurai/main.py",
-    "installed": true,
+    "installed": false,
     "builtin": true,
     "type": "username_search"
   },
@@ -234,7 +234,7 @@
     "type": "email_intel"
   },
   "phoneinfoga": {
-    "path": "./external_tools/phoneinfoga",
+    "path": "./external_tools/bin",
     "executable": "./external_tools/bin/phoneinfoga",
     "installed": true,
     "type": "infra_intel"

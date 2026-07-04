@@ -19,6 +19,7 @@ pygexf>=0.2.2
 publicsuffixlist>=0.9.0
 python-dotenv>=1.0.0
 maigret>=0.4.4
+lxml>=6.0.2,<7.0
 holehe>=1.61
 shodan>=1.31.0
 Pillow>=10.2.0

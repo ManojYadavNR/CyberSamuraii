@@ -81,7 +81,7 @@ FEATURE_EXPANSION_LIMITS: dict[str, int] = {
 # Concurrent tool runners per feature (domain/username hops search platforms in parallel).
 FEATURE_TOOL_CONCURRENCY: dict[str, int] = {
     "domain_intel": max(2, int(os.getenv("DOMAIN_TOOL_CONCURRENCY", "8"))),
-    "username_search": max(2, int(os.getenv("USERNAME_TOOL_CONCURRENCY", "5"))),
+    "username_search": max(2, int(os.getenv("USERNAME_TOOL_CONCURRENCY", "10"))),
     "email_intel": max(2, int(os.getenv("EMAIL_TOOL_CONCURRENCY", "10"))),
     "infra_intel": max(2, int(os.getenv("INFRA_TOOL_CONCURRENCY", "4"))),
 }
@@ -103,9 +103,9 @@ BROWSER_REVERSE_SOURCES: frozenset[str] = frozenset({"google_lens", "bing_upload
 SKIP_BROWSER_MIN_MATCHES: int = max(0, int(os.getenv("REVERSE_SKIP_BROWSER_MIN_MATCHES", "1")))
 
 # Hard wall clocks (seconds) — per-tool budget once running; batch cap scales with queue depth.
-INVESTIGATION_WALL_SECONDS: float = float(os.getenv("INVESTIGATION_WALL_SECONDS", "300"))
-USERNAME_WALL_SEC: float = float(os.getenv("USERNAME_WALL_SEC", "180"))
-EMAIL_WALL_SEC: float = float(os.getenv("EMAIL_WALL_SEC", "180"))
+INVESTIGATION_WALL_SECONDS: float = float(os.getenv("INVESTIGATION_WALL_SECONDS", "120"))
+USERNAME_WALL_SEC: float = float(os.getenv("USERNAME_WALL_SEC", "90"))
+EMAIL_WALL_SEC: float = float(os.getenv("EMAIL_WALL_SEC", "90"))
 MAX_USERNAME_BATCH_SEC: float = float(os.getenv("MAX_USERNAME_BATCH_SEC", "540"))
 DUAL_MAX_USERNAME_BATCH_SEC: float = float(os.getenv("DUAL_MAX_USERNAME_BATCH_SEC", "300"))
 MAX_EMAIL_BATCH_SEC: float = float(os.getenv("MAX_EMAIL_BATCH_SEC", "480"))
@@ -114,8 +114,8 @@ FAST_USERNAME_WALL_SEC: float = float(os.getenv("FAST_USERNAME_WALL_SEC", "90"))
 FAST_EMAIL_WALL_SEC: float = float(os.getenv("FAST_EMAIL_WALL_SEC", "60"))
 DOMAIN_WALL_SEC: float = float(os.getenv("DOMAIN_WALL_SEC", "120"))
 INFRA_WALL_SEC: float = float(os.getenv("INFRA_WALL_SEC", "300"))
-PHONE_WALL_SEC: float = float(os.getenv("PHONE_WALL_SEC", "360"))
-PHONE_SOCIAL_INTEL_WALL_SEC: float = float(os.getenv("PHONE_SOCIAL_INTEL_WALL_SEC", "360"))
+PHONE_WALL_SEC: float = float(os.getenv("PHONE_WALL_SEC", "120"))
+PHONE_SOCIAL_INTEL_WALL_SEC: float = float(os.getenv("PHONE_SOCIAL_INTEL_WALL_SEC", "120"))
 PHONEINFOGA_WALL_SEC: float = float(os.getenv("PHONEINFOGA_WALL_SEC", "120"))
 IMAGE_WALL_SECONDS: float = float(os.getenv("IMAGE_WALL_SECONDS", "120"))
 DISCOVERY_WALL_SECONDS: float = float(os.getenv("DISCOVERY_WALL_SECONDS", "170"))

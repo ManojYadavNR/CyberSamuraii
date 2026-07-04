@@ -1076,12 +1076,18 @@ class InvestigationRunner:
             from services.brief_indexer import on_tool_completed
 
             on_tool_completed(safe_tr, query=query)
-            if feature == "infra_intel":
-                completed[tool] = safe_tr
+            completed[tool] = safe_tr
+            if feature != "email_intel":
                 partial_tr = [completed[t] for t in tool_names if t in completed]
                 if partial_tr:
                     partial_fusion = build_fusion_output(partial_tr, feature, query)
                     await _emit_generic_partial(partial_fusion, partial_tr)
+                    if feature == "username_search":
+                        await _emit_live_profile_snapshot(
+                            partial_fusion,
+                            scan_phase=3,
+                            tool_results_for_ui=partial_tr,
+                        )
             return tool, safe_tr
 
         from orchestrator.parallel_config import batch_wall_seconds, effective_wall_seconds, feature_wall_seconds
