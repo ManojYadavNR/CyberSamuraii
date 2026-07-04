@@ -235,7 +235,6 @@ export const useInvestigationStore = create<InvestigationState>((set) => ({
       result: {
         feature: prev?.feature ?? defaultFeature,
         query: s.query,
-        tool_results: mergedTools,
         ...prev,
         ...partial,
         tool_results: mergedTools,

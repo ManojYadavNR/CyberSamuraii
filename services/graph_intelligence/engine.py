@@ -125,6 +125,24 @@ class GraphIntelligenceEngine:
                         if graph.has_node(acct_nid):
                             graph.add_edge(acct_nid, nid, relation="SHARES_IMAGE", weight=0.8)
 
+            if entity.type == "comment" or entity.metadata.get("is_comment"):
+                owner = entity.metadata.get("ownerUsername")
+                platform = entity.metadata.get("platform", "instagram")
+                post_url = entity.metadata.get("postUrl")
+                
+                if owner:
+                    owner_val = f"{platform}:{owner.lower()}"
+                    owner_nid = _node_id("Account", owner_val)
+                    if not graph.has_node(owner_nid):
+                        graph.add_node(owner_nid, label=owner_val, node_type="Account", platform=platform)
+                    graph.add_edge(owner_nid, nid, relation="COMMENTED_ON", weight=0.9)
+                    
+                if post_url:
+                    post_nid = _node_id("Post", post_url)
+                    if not graph.has_node(post_nid):
+                        graph.add_node(post_nid, label=post_url, node_type="Post", platform=platform)
+                    graph.add_edge(nid, post_nid, relation="PART_OF", weight=1.0)
+
     def _ingest_correlation(
         self,
         graph: Any,
@@ -180,6 +198,8 @@ class GraphIntelligenceEngine:
             "person": "Person",
             "post": "Post",
             "hashtag": "Hashtag",
+            "comment": "Comment",
+            "document": "Document",
         }
         return mapping.get(entity_type, "Account")
 

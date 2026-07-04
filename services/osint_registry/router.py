@@ -15,6 +15,7 @@ INPUT_TO_FEATURE: dict[str, str] = {
     "domain": "domain_intel",
     "phone": "infra_intel",
     "infra": "infra_intel",
+    "url": "url_intel",
 }
 
 FEATURE_TO_INPUT: dict[str, str] = {v: k for k, v in INPUT_TO_FEATURE.items()}
@@ -149,6 +150,7 @@ def _fallback_tools(feature: str, *, input_type: str = "") -> list[str]:
             if input_type == "phone"
             else ["shodan", "google_dorking"]
         ),
+        "url_intel": ["instagram_comment_apify"],
         "image_intel": IMAGE_PARALLEL_TOOLS,
     }
     return defaults.get(feature, [])

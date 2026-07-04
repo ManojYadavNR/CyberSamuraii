@@ -323,11 +323,11 @@ function InstagramPostEmbed({ shortcode, url }: { shortcode?: string; url?: stri
   return (
     <iframe
       title={`Instagram post ${code}`}
-      src={`https://www.instagram.com/p/${encodeURIComponent(code)}/embed`}
+      src={`https://www.instagram.com/p/${encodeURIComponent(code)}/embed/captioned`}
       className="w-full rounded-lg border border-pink-500/20 bg-black"
       style={{ minHeight: 420 }}
       loading="lazy"
-      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      sandbox="allow-scripts allow-same-origin allow-presentation"
       referrerPolicy="no-referrer"
     />
   );
@@ -819,10 +819,6 @@ function FacebookSection({
     ),
   );
 
-  const hasTargetMedia = galleryPhotos.length > 0
-    || dedupedReels.length > 0
-    || dedupedVideos.length > 0
-    || targetTimeline.length > 0;
 
   return (
     <div className="space-y-4">

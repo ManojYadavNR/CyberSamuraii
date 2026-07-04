@@ -24,7 +24,7 @@ class EvidenceRecord(BaseModel):
 
 class Entity(BaseModel):
     entity_id: str = Field(default_factory=lambda: str(uuid4()))
-    type: str = Field(description="account | email | phone | domain | image | person | post | hashtag")
+    type: str = Field(description="account | email | phone | domain | image | person | post | hashtag | comment | document")
     value: str
     canonical_value: str = ""
     aliases: list[str] = Field(default_factory=list)

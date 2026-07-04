@@ -16,4 +16,8 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp")
 
 def detect_query_type(query: str) -> str:
     parsed = parse_investigation_input(query)
+    low = query.strip().lower()
+    if low.startswith("http://") or low.startswith("https://"):
+        if "instagram.com/p/" in low or "instagram.com/reel/" in low:
+            return "url"
     return parsed.primary_type

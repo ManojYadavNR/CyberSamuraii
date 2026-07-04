@@ -125,8 +125,8 @@ RULES:
 
 MAP_SYSTEM_PROMPT = """You extract facts from ONE slice of raw OSINT investigation data.
 Rules:
-- List EVERY account, URL, name, college, hackathon, post, bio, error, and count you find.
-- Do not summarize away details — include specific handles, domains, and titles.
+- List EVERY account, URL, name, college, hackathon, post, bio, error, comment, commenter, and count you find.
+- Do not summarize away details — include specific handles, domains, titles, and comment text.
 - If the chunk is empty or failed, state that explicitly.
 - Output compact bullet points grouped by type. No speculation.
 """

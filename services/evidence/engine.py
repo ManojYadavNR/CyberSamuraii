@@ -645,6 +645,12 @@ def extract_document_intelligence(entity: Entity, *, seed_query: str = "") -> li
         add("organization", org, "document_organization")
     for url in extract_urls_from_text(full_text):
         add("public_link", url, "document_reference")
+        
+    if meta.get("is_comment"):
+        add("comment", text, "social_media_comment", 0.95)
+        if meta.get("postUrl"):
+            add("public_link", meta.get("postUrl"), "commented_post")
+            
     return extracted
 
 
@@ -738,6 +744,7 @@ def build_unified_person_profile(
                 )
             ]
         ),
+        comments=_dedupe_provenance(collect("comment")),
         platform_profiles=sorted(
             [
                 p for p in verified

@@ -15,6 +15,7 @@ import { VerifiedPlatformsPanel } from './VerifiedPlatformsPanel';
 import { EmailIntelPanel } from './EmailIntelPanel';
 import { PhoneIntelPanel } from './PhoneIntelPanel';
 import { SamuraiSocialPanel } from './SamuraiSocialPanel';
+import { InstagramCommentsPanel } from './InstagramCommentsPanel';
 import { LinguisticAnalysisPanel } from './LinguisticAnalysisPanel';
 import { VerifiedProfilePhotosPanel } from './VerifiedProfilePhotosPanel';
 import { DetectedFacesPanel } from './DetectedFacesPanel';
@@ -205,6 +206,7 @@ export function PersonInvestigationPanel() {
       {result && <VerifiedPlatformsPanel />}
 
       {result && <SamuraiSocialPanel />}
+      {result && <InstagramCommentsPanel />}
 
       {result && <LinguisticAnalysisPanel />}
 

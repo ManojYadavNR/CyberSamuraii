@@ -205,15 +205,9 @@ export function startInvestigation(
     ? { enabled: true, max_depth: 4, max_hops: 20, max_leads_per_hop: 12, max_total_leads: 50 }
     : isPhone
       ? { enabled: false }
-    : isImage && investigationMode === 'fast'
-      ? { enabled: true, max_depth: 2, max_hops: 4, max_leads_per_hop: 4, max_total_leads: 8 }
-      : isImage
-        ? { enabled: true, max_depth: 2, max_hops: 6, max_leads_per_hop: 4, max_total_leads: 10 }
-        : investigationMode === 'fast'
-          ? { enabled: false }
-          : !isImage
-            ? { enabled: true, max_depth: 2, max_hops: 2, max_leads_per_hop: 5, max_total_leads: 12 }
-            : undefined;
+    : isImage
+      ? { enabled: true, max_depth: 2, max_hops: 6, max_leads_per_hop: 4, max_total_leads: 10 }
+      : { enabled: true, max_depth: 2, max_hops: 2, max_leads_per_hop: 5, max_total_leads: 12 };
 
   const imageProfile = investigationMode === 'deep' ? 'deep' : 'fast';
   const timeoutPerTool = investigationMode === 'samurai'

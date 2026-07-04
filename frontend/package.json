@@ -13,6 +13,7 @@
     "@tailwindcss/vite": "^4.3.1",
     "cytoscape": "^3.34.0",
     "cytoscape-cose-bilkent": "^4.1.0",
+    "framer-motion": "^12.42.2",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-icons": "^5.7.0",

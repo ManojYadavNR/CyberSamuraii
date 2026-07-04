@@ -323,6 +323,49 @@ def _extract_from_item(
     if platform == "samurai_intel" or item.get("check_type") == "samurai_intel":
         return _extract_samurai_entities(item, source_tool, query)
 
+    if source_tool == "instagram_comment_apify":
+        entities = []
+        owner_username = item.get("ownerUsername")
+        if owner_username:
+            account_val = f"instagram:{owner_username.lower()}"
+            # Extract commenter profile
+            entities.append(_make_entity(
+                "account",
+                account_val,
+                source_tool,
+                {
+                    "platform": "instagram",
+                    "username": owner_username.lower(),
+                    "user_id": item.get("ownerId"),
+                    "profile_url": f"https://www.instagram.com/{owner_username}/",
+                    "profile_pic_url": item.get("ownerProfilePicUrl"),
+                    "status": "registered",
+                    "verified": True,
+                    "registered": True,
+                    "total_comments": 1,
+                    "total_comment_likes": item.get("likesCount", 0),
+                    "comment_history": [item.get("text")],
+                    "comment_timeline": [item.get("timestamp")],
+                }
+            ))
+            # Extract comment text as document/evidence
+            entities.append(_make_entity(
+                "document",
+                item.get("id"),
+                source_tool,
+                {
+                    "platform": "instagram",
+                    "text": item.get("text"),
+                    "timestamp": item.get("timestamp"),
+                    "likesCount": item.get("likesCount"),
+                    "repliesCount": item.get("repliesCount"),
+                    "postUrl": item.get("postUrl"),
+                    "ownerUsername": owner_username,
+                    "is_comment": True,
+                }
+            ))
+        return entities
+
     if _is_internal_item(item):
         return []
 
@@ -611,6 +654,17 @@ def _merge_metadata(existing: dict[str, Any], incoming: dict[str, Any], source: 
             merged[key] = True
         elif key == "registered" and value is True:
             merged[key] = True
+            
+        # Apify Comment Scraper Aggregations
+        elif key == "total_comments":
+            merged[key] = merged.get(key, 0) + value
+        elif key == "total_comment_likes":
+            merged[key] = merged.get(key, 0) + value
+        elif key == "comment_history":
+            merged[key] = merged.get(key, []) + value
+        elif key == "comment_timeline":
+            merged[key] = sorted(merged.get(key, []) + value)
+            
     return merged
 
 

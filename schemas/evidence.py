@@ -62,6 +62,7 @@ class UnifiedPersonProfile(BaseModel):
     images: list[FieldProvenance] = Field(default_factory=list)
     public_links: list[FieldProvenance] = Field(default_factory=list)
     search_findings: list[FieldProvenance] = Field(default_factory=list)
+    comments: list[FieldProvenance] = Field(default_factory=list)
     platform_profiles: list[PlatformProfile] = Field(default_factory=list)
     primary_display_name: str | None = None
     primary_bio: str | None = None

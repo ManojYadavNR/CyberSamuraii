@@ -79,6 +79,7 @@ export interface UnifiedPersonProfile {
   images: FieldProvenance[];
   public_links: FieldProvenance[];
   search_findings?: FieldProvenance[];
+  comments?: FieldProvenance[];
   platform_profiles: PlatformProfile[];
   primary_display_name?: string;
   primary_bio?: string;

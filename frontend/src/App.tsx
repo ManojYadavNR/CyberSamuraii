@@ -4,6 +4,8 @@ import { ForgotPasswordPage } from './components/ForgotPasswordPage';
 import { LoginPage } from './components/LoginPage';
 import { AppShell } from './layout/AppShell';
 import { useAuthStore } from './store/authStore';
+import { useStartup } from './hooks/useStartup';
+import { StartupIntro } from './components/startup/StartupIntro';
 
 export default function App() {
   const enterpriseAuth = useAuthStore((s) => s.enterpriseAuth);
@@ -14,6 +16,8 @@ export default function App() {
   const setSession = useAuthStore((s) => s.setSession);
   const refreshToken = useAuthStore((s) => s.refreshToken);
   const [authView, setAuthView] = useState<'login' | 'forgot-password'>('login');
+  
+  const { isFinished, finishStartup } = useStartup();
 
   useEffect(() => {
     const base = import.meta.env.VITE_API_URL || '';
@@ -40,12 +44,19 @@ export default function App() {
     import('./lib/permissions').then(({ loadRbacConfig }) => loadRbacConfig().catch(() => undefined));
   }, [enterpriseAuth, accessToken, refreshToken, setSession]);
 
-  if (enterpriseAuth && !authenticated) {
-    if (authView === 'forgot-password') {
-      return <ForgotPasswordPage onBack={() => setAuthView('login')} />;
-    }
-    return <LoginPage onForgotPassword={() => setAuthView('forgot-password')} />;
-  }
-
-  return <AppShell />;
+  return (
+    <>
+      {!isFinished && <StartupIntro onComplete={finishStartup} />}
+      
+      {enterpriseAuth && !authenticated ? (
+        authView === 'forgot-password' ? (
+          <ForgotPasswordPage onBack={() => setAuthView('login')} />
+        ) : (
+          <LoginPage onForgotPassword={() => setAuthView('forgot-password')} />
+        )
+      ) : (
+        <AppShell />
+      )}
+    </>
+  );
 }

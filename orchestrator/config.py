@@ -12,6 +12,7 @@ from adapters.recon_ng import ReconNgAdapter
 from adapters.shodan_adapter import ShodanAdapter
 from adapters.sherlock import SherlockAdapter
 from adapters.samurai import SamuraiAdapter
+from adapters.instagram_comment_apify import InstagramCommentApifyAdapter
 from adapters.social_analyzer import SocialAnalyzerAdapter
 from adapters.spiderfoot import SpiderFootAdapter
 from adapters.theharvester import TheHarvesterAdapter
@@ -58,6 +59,7 @@ ADAPTER_MAP: dict[str, type[BaseAdapter]] = {
     "phone_social_intel": PhoneSocialIntelAdapter,
     "platform_probe": PlatformProbeAdapter,
     "samurai": SamuraiAdapter,
+    "instagram_comment_apify": InstagramCommentApifyAdapter,
     **EXTERNAL_OSINT_ADAPTERS,
     **IMAGE_ADAPTER_CLASSES,
 }
@@ -78,6 +80,7 @@ TOOL_TIMEOUTS: dict[str, float] = {
     "google_dorking": 300.0,
     "platform_probe": 35.0,
     "samurai": 120.0,
+    "instagram_comment_apify": 300.0,
     "blackbird": 120.0,
     "nexfil": 90.0,
     "gitfive": 90.0,
