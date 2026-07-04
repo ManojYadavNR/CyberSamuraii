@@ -64,12 +64,63 @@ export async function createCase(body: { title: string; description?: string; pr
   return apiFetch('/api/enterprise/cases', { method: 'POST', body: JSON.stringify(body) });
 }
 
-export async function assignCase(caseId: string, assignedTo: string): Promise<CaseOut> {
-  return apiFetch(`/api/enterprise/cases/${caseId}/assign`, { method: 'POST', body: JSON.stringify({ assigned_to: assignedTo }) });
+export async function assignCase(caseId: string, assignedTo: string, relationship = 'investigating_officer'): Promise<CaseOut> {
+  return apiFetch(`/api/enterprise/cases/${caseId}/assign`, {
+    method: 'POST',
+    body: JSON.stringify({ assigned_to: assignedTo, relationship }),
+  });
 }
 
-export async function transferCase(caseId: string, assignedTo: string): Promise<CaseOut> {
-  return apiFetch(`/api/enterprise/cases/${caseId}/transfer`, { method: 'POST', body: JSON.stringify({ assigned_to: assignedTo }) });
+export async function transferCase(caseId: string, assignedTo: string, relationship = 'investigating_officer'): Promise<CaseOut> {
+  return apiFetch(`/api/enterprise/cases/${caseId}/transfer`, {
+    method: 'POST',
+    body: JSON.stringify({ assigned_to: assignedTo, relationship }),
+  });
+}
+
+export interface CaseAssignmentRow {
+  assignment_id: string;
+  case_id: string;
+  user_id: string;
+  relationship: string;
+  org_role: string;
+  rank_code: string;
+  assigned_by: string;
+  active: boolean;
+  notes: string;
+  assigned_at: string;
+}
+
+export interface PermissionsSummary {
+  role: string;
+  rank: string;
+  relationships: string[];
+  global_permissions: string[];
+  case_permissions: string[];
+  effective_on_case: string[];
+}
+
+export async function fetchRbacConfig() {
+  return apiFetch('/api/enterprise/rbac/config');
+}
+
+export async function fetchMyPermissions(caseId?: string): Promise<PermissionsSummary> {
+  const q = caseId ? `?case_id=${encodeURIComponent(caseId)}` : '';
+  return apiFetch(`/api/enterprise/rbac/permissions/me${q}`);
+}
+
+export async function fetchCaseAssignments(caseId: string): Promise<CaseAssignmentRow[]> {
+  return apiFetch(`/api/enterprise/cases/${caseId}/assignments`);
+}
+
+export async function setCaseAssignments(
+  caseId: string,
+  assignments: { user_id: string; relationship: string; notes?: string }[],
+): Promise<CaseAssignmentRow[]> {
+  return apiFetch(`/api/enterprise/cases/${caseId}/assignments`, {
+    method: 'POST',
+    body: JSON.stringify({ assignments }),
+  });
 }
 
 export async function closeCase(caseId: string): Promise<CaseOut> {

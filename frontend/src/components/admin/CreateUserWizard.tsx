@@ -5,7 +5,7 @@ import { IntelSelect } from '../ui/IntelSelect';
 import type { CreateUserFormState } from './iamTypes';
 import { DEFAULT_CREATE_USER } from './iamTypes';
 import { agencySelectOptions, roleSelectOptions } from './iamHelpers';
-import { getRolePermissions, permissionLabel } from '../../lib/permissions';
+import { getRolePermissions, loadRbacConfig, permissionLabel } from '../../lib/permissions';
 
 const STEPS = ['Personal', 'Organization', 'Access', 'Security', 'Review'] as const;
 
@@ -28,6 +28,11 @@ export function CreateUserWizard({ open, agencies, onClose, onSubmit }: CreateUs
 
   useEffect(() => {
     if (!open) return;
+    loadRbacConfig().catch(() => undefined);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     setIdsLoading(true);
     fetchNextUserIds()
       .then((ids) => setForm((f) => ({ ...f, employeeId: ids.employee_id, badgeNumber: ids.badge_number })))
@@ -44,15 +49,19 @@ export function CreateUserWizard({ open, agencies, onClose, onSubmit }: CreateUs
     setSubmitting(true);
     setError('');
     try {
-      const designation = [form.badgeNumber, form.unit].filter(Boolean).join(' · ') || form.district;
       await onSubmit({
         username: form.username.trim(),
         password: form.password,
         name: form.name.trim(),
         email: form.email.trim(),
         role: form.role,
-        department: form.department || form.agency || 'CID',
-        designation,
+        department: form.department || form.agency || 'Headquarters',
+        designation: form.unit ? `${form.badgeNumber || form.district} · ${form.unit}` : form.district,
+        rank_code: form.role,
+        agency_code: form.agency,
+        unit: form.unit,
+        district: form.district,
+        supervisor_id: form.supervisor,
         employee_id: form.employeeId,
         badge_number: form.badgeNumber,
       });
@@ -209,17 +218,13 @@ export function CreateUserWizard({ open, agencies, onClose, onSubmit }: CreateUs
                   <h3 className="mb-4 text-sm font-semibold text-white">Access</h3>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <IntelSelect
-                      label="Role"
+                      label="Organizational rank (role)"
                       value={form.role}
                       options={roleOptions}
                       onChange={(next) => set('role', next)}
-                      className="iam-intel-select"
+                      className="iam-intel-select sm:col-span-2"
                       size="sm"
                     />
-                    <label className="block opacity-60">
-                      <span className="iam-field-label">Case Visibility</span>
-                      <input className="iam-input" disabled value="Agency default" />
-                    </label>
                   </div>
                   <div className="mt-4">
                     <p className="iam-field-label">Permissions granted by this role</p>

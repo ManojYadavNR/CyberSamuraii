@@ -5,50 +5,218 @@
     "delete_case",
     "assign_case",
     "start_investigation",
+    "run_intelligence_collection",
     "export_evidence",
+    "upload_evidence",
+    "edit_evidence",
     "approve_evidence",
+    "approve_reports",
+    "generate_reports",
     "manage_users",
+    "manage_agencies",
     "view_audit_logs",
     "close_case",
+    "reopen_case",
     "view_cases",
-    "view_investigations"
+    "view_investigations",
+    "view_intelligence_graph",
+    "manage_integrations"
+  ],
+  "organizational_ranks": [
+    { "code": "DGP", "label": "Director General of Police", "order": 1 },
+    { "code": "ADGP", "label": "Additional Director General of Police", "order": 2 },
+    { "code": "IGP", "label": "Inspector General of Police", "order": 3 },
+    { "code": "DIG", "label": "Deputy Inspector General", "order": 4 },
+    { "code": "SP", "label": "Superintendent of Police", "order": 5 },
+    { "code": "DSP", "label": "Deputy Superintendent of Police", "order": 6 },
+    { "code": "PI", "label": "Police Inspector", "order": 7 },
+    { "code": "PSI", "label": "Police Sub-Inspector", "order": 8 },
+    { "code": "HC", "label": "Head Constable", "order": 9 },
+    { "code": "PC", "label": "Police Constable", "order": 10 }
   ],
   "roles": {
     "SUPER_ADMIN": ["*"],
-    "CID_DIRECTOR": [
-      "create_case", "edit_case", "assign_case", "start_investigation",
-      "export_evidence", "approve_evidence", "manage_users", "view_audit_logs",
-      "close_case", "view_cases", "view_investigations"
+    "DGP": [
+      "create_case", "edit_case", "delete_case", "assign_case", "start_investigation", "run_intelligence_collection",
+      "export_evidence", "upload_evidence", "edit_evidence", "approve_evidence", "approve_reports", "generate_reports",
+      "manage_users", "manage_agencies", "view_audit_logs", "close_case", "reopen_case", "view_cases", "view_investigations",
+      "view_intelligence_graph", "manage_integrations"
+    ],
+    "ADGP": [
+      "create_case", "assign_case", "view_cases", "view_investigations", "view_intelligence_graph", "approve_reports",
+      "approve_evidence", "close_case", "reopen_case", "view_audit_logs", "generate_reports", "manage_agencies"
+    ],
+    "IGP": [
+      "create_case", "assign_case", "view_cases", "view_investigations", "view_intelligence_graph", "approve_reports",
+      "approve_evidence", "close_case", "view_audit_logs", "generate_reports"
+    ],
+    "DIG": [
+      "create_case", "assign_case", "view_cases", "view_investigations", "view_intelligence_graph", "approve_reports",
+      "approve_evidence", "close_case", "view_audit_logs", "generate_reports"
     ],
     "SP": [
-      "create_case", "edit_case", "assign_case", "start_investigation",
-      "export_evidence", "approve_evidence", "close_case", "view_cases",
-      "view_investigations", "view_audit_logs"
+      "create_case", "edit_case", "assign_case", "start_investigation", "run_intelligence_collection",
+      "export_evidence", "upload_evidence", "edit_evidence", "approve_evidence", "approve_reports",
+      "generate_reports", "close_case", "reopen_case", "view_cases", "view_investigations",
+      "view_intelligence_graph", "view_audit_logs"
     ],
     "DSP": [
-      "create_case", "edit_case", "assign_case", "start_investigation",
-      "export_evidence", "approve_evidence", "close_case", "view_cases",
-      "view_investigations"
+      "create_case", "edit_case", "assign_case", "start_investigation", "run_intelligence_collection",
+      "export_evidence", "upload_evidence", "edit_evidence", "approve_evidence", "approve_reports",
+      "generate_reports", "close_case", "reopen_case", "view_cases", "view_investigations",
+      "view_intelligence_graph"
     ],
-    "INSPECTOR": [
-      "create_case", "edit_case", "assign_case", "start_investigation",
-      "export_evidence", "approve_evidence", "view_cases", "view_investigations"
+    "PI": [
+      "create_case", "edit_case", "assign_case", "start_investigation", "run_intelligence_collection",
+      "export_evidence", "upload_evidence", "edit_evidence", "approve_evidence", "generate_reports",
+      "view_cases", "view_investigations", "view_intelligence_graph"
     ],
-    "SUB_INSPECTOR": [
-      "create_case", "edit_case", "start_investigation", "export_evidence",
+    "PSI": [
+      "create_case", "edit_case", "start_investigation", "run_intelligence_collection",
+      "export_evidence", "upload_evidence", "view_cases", "view_investigations", "view_intelligence_graph"
+    ],
+    "HC": [
+      "start_investigation", "run_intelligence_collection", "export_evidence", "upload_evidence",
+      "view_cases", "view_investigations", "view_intelligence_graph"
+    ],
+    "PC": [
       "view_cases", "view_investigations"
-    ],
-    "ANALYST": [
-      "create_case", "start_investigation", "export_evidence",
-      "view_cases", "view_investigations"
-    ],
-    "INTELLIGENCE_OFFICER": [
-      "start_investigation", "view_cases", "view_investigations", "export_evidence"
-    ],
-    "FORENSICS_OFFICER": [
-      "start_investigation", "view_cases", "view_investigations", "export_evidence"
-    ],
-    "VIEWER": ["view_cases", "view_investigations"],
-    "AUDITOR": ["view_cases", "view_investigations", "view_audit_logs"]
-  }
+    ]
+  },
+  "legacy_role_map": {
+    "CID_DIRECTOR": "DGP",
+    "INSPECTOR": "PI",
+    "SUB_INSPECTOR": "PSI",
+    "ANALYST": "HC",
+    "VIEWER": "PC",
+    "AUDITOR": "DIG",
+    "INTELLIGENCE_OFFICER": "PSI",
+    "FORENSICS_OFFICER": "HC"
+  },
+  "case_relationships": [
+    { "code": "supervisor", "label": "Supervisor" },
+    { "code": "investigating_officer", "label": "Investigating Officer" },
+    { "code": "assistant_investigator", "label": "Assistant Investigator" },
+    { "code": "evidence_officer", "label": "Evidence Officer" },
+    { "code": "review_officer", "label": "Review Officer" },
+    { "code": "read_only", "label": "Read Only" },
+    { "code": "case_observer", "label": "Case Observer" }
+  ],
+  "permission_aliases": {
+    "start_investigation": "run_intelligence_collection",
+    "export_evidence": "generate_reports"
+  },
+  "permission_matrix": {
+    "DGP": {
+      "supervisor": ["*"],
+      "investigating_officer": ["*"],
+      "review_officer": ["*"]
+    },
+    "ADGP": {
+      "supervisor": ["create_case", "assign_case", "view_cases", "view_investigations", "view_intelligence_graph", "approve_reports", "approve_evidence", "close_case", "reopen_case", "view_audit_logs", "generate_reports"],
+      "review_officer": ["view_cases", "view_investigations", "approve_reports", "approve_evidence", "view_audit_logs", "generate_reports"]
+    },
+    "IGP": {
+      "supervisor": ["create_case", "assign_case", "view_cases", "view_investigations", "view_intelligence_graph", "approve_reports", "approve_evidence", "close_case", "view_audit_logs", "generate_reports"],
+      "review_officer": ["view_cases", "view_investigations", "approve_reports", "approve_evidence", "view_audit_logs"]
+    },
+    "DIG": {
+      "supervisor": ["create_case", "assign_case", "view_cases", "view_investigations", "view_intelligence_graph", "approve_reports", "approve_evidence", "close_case", "view_audit_logs", "generate_reports"],
+      "review_officer": ["view_cases", "view_investigations", "approve_reports", "approve_evidence", "view_audit_logs"]
+    },
+    "SP": {
+      "supervisor": ["create_case", "assign_case", "view_cases", "view_investigations", "view_intelligence_graph", "run_intelligence_collection", "upload_evidence", "edit_evidence", "approve_reports", "approve_evidence", "close_case", "reopen_case", "generate_reports", "view_audit_logs"],
+      "investigating_officer": ["view_cases", "view_investigations", "view_intelligence_graph", "run_intelligence_collection", "upload_evidence", "edit_evidence", "approve_evidence", "generate_reports", "assign_case"],
+      "review_officer": ["view_cases", "view_investigations", "approve_reports", "approve_evidence", "generate_reports"],
+      "read_only": ["view_cases", "view_investigations"],
+      "case_observer": ["view_cases", "view_investigations"]
+    },
+    "DSP": {
+      "supervisor": ["create_case", "assign_case", "view_cases", "view_investigations", "view_intelligence_graph", "run_intelligence_collection", "upload_evidence", "edit_evidence", "approve_evidence", "close_case", "generate_reports"],
+      "investigating_officer": ["view_cases", "view_investigations", "view_intelligence_graph", "run_intelligence_collection", "upload_evidence", "edit_evidence", "approve_evidence", "generate_reports", "edit_case"],
+      "assistant_investigator": ["view_cases", "view_investigations", "run_intelligence_collection", "upload_evidence", "view_intelligence_graph"],
+      "evidence_officer": ["view_cases", "upload_evidence", "edit_evidence", "view_investigations"],
+      "review_officer": ["view_cases", "view_investigations", "approve_evidence", "generate_reports"],
+      "read_only": ["view_cases", "view_investigations"],
+      "case_observer": ["view_cases", "view_investigations"]
+    },
+    "PI": {
+      "investigating_officer": ["view_cases", "view_investigations", "view_intelligence_graph", "run_intelligence_collection", "upload_evidence", "edit_evidence", "edit_case", "generate_reports", "assign_case"],
+      "assistant_investigator": ["view_cases", "view_investigations", "run_intelligence_collection", "upload_evidence", "view_intelligence_graph"],
+      "evidence_officer": ["view_cases", "upload_evidence", "edit_evidence", "view_investigations"],
+      "supervisor": ["view_cases", "view_investigations", "assign_case", "approve_evidence", "generate_reports"],
+      "read_only": ["view_cases", "view_investigations"],
+      "case_observer": ["view_cases", "view_investigations"]
+    },
+    "PSI": {
+      "assistant_investigator": ["view_cases", "view_investigations", "run_intelligence_collection", "upload_evidence", "view_intelligence_graph"],
+      "evidence_officer": ["view_cases", "upload_evidence", "view_investigations"],
+      "investigating_officer": ["view_cases", "view_investigations", "run_intelligence_collection", "upload_evidence", "edit_evidence", "edit_case", "generate_reports"],
+      "read_only": ["view_cases", "view_investigations"],
+      "case_observer": ["view_cases", "view_investigations"]
+    },
+    "HC": {
+      "assistant_investigator": ["view_cases", "view_investigations", "run_intelligence_collection", "upload_evidence"],
+      "evidence_officer": ["view_cases", "upload_evidence", "view_investigations"],
+      "read_only": ["view_cases", "view_investigations"],
+      "case_observer": ["view_cases"]
+    },
+    "PC": {
+      "assistant_investigator": ["view_cases", "run_intelligence_collection", "upload_evidence"],
+      "read_only": ["view_cases"],
+      "case_observer": ["view_cases"]
+    }
+  },
+  "workflow": {
+    "default_io_eligible_ranks": ["PI", "DSP", "SP"],
+    "default_supervisor_ranks": ["SP", "DSP", "DIG", "IGP", "ADGP", "DGP"],
+    "default_assistant_ranks": ["PSI", "HC", "PC"],
+    "default_evidence_officer_ranks": ["HC"],
+    "default_review_officer_ranks": ["DIG", "IGP", "ADGP", "SP"],
+    "sensitive_case_io_ranks": ["SP"],
+    "creator_default_relationship": "supervisor",
+    "legacy_io_relationship": "investigating_officer",
+    "admin_ranks": ["DGP", "ADGP"],
+    "supervisor_ranks": ["SP", "DSP", "PI", "DIG", "IGP", "ADGP", "DGP"]
+  },
+  "assignment_templates": [
+    {
+      "code": "standard_investigation",
+      "label": "Standard investigation team",
+      "slots": [
+        { "relationship": "supervisor", "eligible_ranks": ["SP", "DSP", "DIG"], "min": 1, "max": 1 },
+        { "relationship": "investigating_officer", "eligible_ranks": ["PI", "DSP"], "min": 1, "max": 2 },
+        { "relationship": "assistant_investigator", "eligible_ranks": ["PSI", "HC", "PC"], "min": 0, "max": 6 },
+        { "relationship": "evidence_officer", "eligible_ranks": ["HC"], "min": 0, "max": 2 }
+      ]
+    },
+    {
+      "code": "sensitive_case",
+      "label": "Sensitive case — SP as Investigating Officer",
+      "slots": [
+        { "relationship": "supervisor", "eligible_ranks": ["DIG", "IGP"], "min": 0, "max": 1 },
+        { "relationship": "investigating_officer", "eligible_ranks": ["SP"], "min": 1, "max": 1 },
+        { "relationship": "assistant_investigator", "eligible_ranks": ["DSP", "PI", "PSI"], "min": 1, "max": 4 },
+        { "relationship": "review_officer", "eligible_ranks": ["DIG", "SP"], "min": 1, "max": 2 }
+      ]
+    },
+    {
+      "code": "observer_only",
+      "label": "Read-only observers",
+      "slots": [
+        { "relationship": "case_observer", "eligible_ranks": ["DGP", "ADGP", "IGP", "DIG"], "min": 0, "max": 10 },
+        { "relationship": "read_only", "eligible_ranks": ["PC", "HC"], "min": 0, "max": 10 }
+      ]
+    }
+  ],
+  "case_scoped_permissions": [
+    "view_cases", "edit_case", "start_investigation", "run_intelligence_collection",
+    "upload_evidence", "edit_evidence", "approve_evidence", "approve_reports",
+    "generate_reports", "close_case", "reopen_case", "assign_case", "view_investigations",
+    "view_intelligence_graph"
+  ],
+  "global_only_permissions": [
+    "create_case", "delete_case", "manage_users", "manage_agencies",
+    "view_audit_logs", "manage_integrations"
+  ]
 }

@@ -59,18 +59,22 @@ def _migrate_enterprise_schema(engine) -> None:
 
             if "enterprise_users" in tables:
                 ucols = {c["name"] for c in insp.get_columns("enterprise_users")}
-                if "must_change_password" not in ucols:
-                    _add_column(conn, dialect, "enterprise_users", "must_change_password", "BOOLEAN DEFAULT FALSE")
-                if "mfa_enabled" not in ucols:
-                    _add_column(conn, dialect, "enterprise_users", "mfa_enabled", "BOOLEAN DEFAULT FALSE")
-                if "mfa_secret" not in ucols:
-                    _add_column(conn, dialect, "enterprise_users", "mfa_secret", "VARCHAR(128) DEFAULT ''")
-                if "employee_id" not in ucols:
-                    _add_column(conn, dialect, "enterprise_users", "employee_id", "VARCHAR(64) DEFAULT ''")
-                if "badge_number" not in ucols:
-                    _add_column(conn, dialect, "enterprise_users", "badge_number", "VARCHAR(64) DEFAULT ''")
-                if "profile_avatar" not in ucols:
-                    _add_column(conn, dialect, "enterprise_users", "profile_avatar", "VARCHAR(512) DEFAULT ''")
+                user_migrations = [
+                    ("must_change_password", "BOOLEAN DEFAULT FALSE"),
+                    ("mfa_enabled", "BOOLEAN DEFAULT FALSE"),
+                    ("mfa_secret", "VARCHAR(128) DEFAULT ''"),
+                    ("employee_id", "VARCHAR(64) DEFAULT ''"),
+                    ("badge_number", "VARCHAR(64) DEFAULT ''"),
+                    ("profile_avatar", "VARCHAR(512) DEFAULT ''"),
+                    ("rank_code", "VARCHAR(32) DEFAULT ''"),
+                    ("agency_code", "VARCHAR(64) DEFAULT ''"),
+                    ("unit", "VARCHAR(128) DEFAULT ''"),
+                    ("district", "VARCHAR(128) DEFAULT ''"),
+                    ("supervisor_id", "VARCHAR(36) DEFAULT ''"),
+                ]
+                for col, col_type in user_migrations:
+                    if col not in ucols:
+                        _add_column(conn, dialect, "enterprise_users", col, col_type)
 
             if "enterprise_audit_logs" in tables:
                 acols = {c["name"] for c in insp.get_columns("enterprise_audit_logs")}
@@ -128,9 +132,14 @@ def init_enterprise_db() -> bool:
             password_hash = Column(Text, nullable=False)
             name = Column(String(128), nullable=False)
             email = Column(String(256), unique=True, nullable=False, index=True)
-            role = Column(String(64), nullable=False, default="ANALYST")
+            role = Column(String(64), nullable=False, default="PC")
             department = Column(String(128), default="")
             designation = Column(String(128), default="")
+            rank_code = Column(String(32), default="")
+            agency_code = Column(String(64), default="")
+            unit = Column(String(128), default="")
+            district = Column(String(128), default="")
+            supervisor_id = Column(String(36), default="")
             employee_id = Column(String(64), default="", index=True)
             badge_number = Column(String(64), default="", index=True)
             profile_avatar = Column(String(512), default="")
@@ -176,6 +185,19 @@ def init_enterprise_db() -> bool:
             created_at = Column(DateTime, default=_utc_now)
             updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
             archived_at = Column(DateTime, nullable=True)
+
+        class CaseAssignment(Base):
+            __tablename__ = "enterprise_case_assignments"
+            assignment_id = Column(String(36), primary_key=True)
+            case_id = Column(String(36), nullable=False, index=True)
+            user_id = Column(String(36), nullable=False, index=True)
+            relationship = Column(String(64), nullable=False, index=True)
+            org_role = Column(String(64), default="")
+            rank_code = Column(String(32), default="")
+            assigned_by = Column(String(36), default="")
+            active = Column(Boolean, default=True, index=True)
+            notes = Column(Text, default="")
+            assigned_at = Column(DateTime, default=_utc_now)
 
         class CaseInvestigation(Base):
             __tablename__ = "enterprise_case_investigations"
@@ -347,6 +369,7 @@ def init_enterprise_db() -> bool:
             "RefreshToken": RefreshToken,
             "PasswordResetToken": PasswordResetToken,
             "Case": Case,
+            "CaseAssignment": CaseAssignment,
             "CaseInvestigation": CaseInvestigation,
             "WorkspaceNote": WorkspaceNote,
             "AuditLog": AuditLog,
@@ -365,6 +388,20 @@ def init_enterprise_db() -> bool:
             ensure_audit_chain_integrity()
         except Exception as exc:
             logger.debug("Audit chain integrity check skipped: %s", exc)
+        try:
+            from services.enterprise.case_assignments import migrate_legacy_assignments
+            migrated = migrate_legacy_assignments()
+            if migrated:
+                logger.info("Migrated %s legacy case assignments", migrated)
+        except Exception as exc:
+            logger.debug("Case assignment migration skipped: %s", exc)
+        try:
+            from services.enterprise.users import migrate_legacy_user_roles
+            role_migrated = migrate_legacy_user_roles()
+            if role_migrated:
+                logger.info("Migrated %s legacy user roles to ranks", role_migrated)
+        except Exception as exc:
+            logger.debug("User role migration skipped: %s", exc)
         logger.info("Enterprise database initialized (%s)", url.split("@")[-1][:60])
         return True
     except Exception as exc:
