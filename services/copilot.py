@@ -12,6 +12,7 @@ from typing import Any
 from services.brief_indexer import get_brief
 from services.copilot_context import (
     PACK_VERSION,
+    build_case_copilot_llm_context,
     build_copilot_llm_context,
     build_raw_investigation_pack,
     get_raw_full,
@@ -24,7 +25,12 @@ from services.copilot_llm import (
     prewarm_copilot_model,
     stream_chat_with_qwen,
 )
-from services.copilot_store import append_chat_turn, load_copilot_pack
+from services.copilot_store import (
+    append_case_chat_turn,
+    append_chat_turn,
+    load_case_copilot_pack,
+    load_copilot_pack,
+)
 from services.investigation_brief import brief_to_text
 
 logger = logging.getLogger(__name__)
@@ -51,24 +57,42 @@ def _build_brief_in_memory(raw_full: dict[str, Any], *, query: str = "") -> dict
     return brief
 
 
-def _cache_session(investigation_id: str, *, brief: dict[str, Any], llm_context: str) -> None:
-    if not investigation_id:
+def _case_context_max_chars() -> int:
+    return int(os.getenv("COPILOT_CASE_CONTEXT_MAX_CHARS", "8000"))
+
+
+def _cache_key(*, case_id: str = "", investigation_id: str = "") -> str:
+    if case_id:
+        return f"case:{case_id}"
+    return investigation_id
+
+
+def invalidate_copilot_cache(*, case_id: str = "", investigation_id: str = "") -> None:
+    """Drop cached LLM context so the next chat sees fresh investigations."""
+    if case_id:
+        _SESSION_CACHE.pop(f"case:{case_id}", None)
+    if investigation_id:
+        _SESSION_CACHE.pop(investigation_id, None)
+
+
+def _cache_session(cache_key: str, *, brief: dict[str, Any] | None, llm_context: str) -> None:
+    if not cache_key:
         return
-    _SESSION_CACHE[investigation_id] = {
+    _SESSION_CACHE[cache_key] = {
         "brief": brief,
         "llm_context": llm_context,
         "ts": time.time(),
     }
 
 
-def _get_cached_session(investigation_id: str) -> dict[str, Any] | None:
-    if not investigation_id:
+def _get_cached_session(cache_key: str) -> dict[str, Any] | None:
+    if not cache_key:
         return None
-    entry = _SESSION_CACHE.get(investigation_id)
+    entry = _SESSION_CACHE.get(cache_key)
     if not entry:
         return None
     if time.time() - float(entry.get("ts") or 0) > _CACHE_TTL_SEC:
-        _SESSION_CACHE.pop(investigation_id, None)
+        _SESSION_CACHE.pop(cache_key, None)
         return None
     return entry
 
@@ -80,9 +104,12 @@ async def _resolve_brief_and_context(
     query: str,
     message: str,
     pack: dict[str, Any] | None,
+    case_id: str = "",
+    current_result: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, str]:
-    limit = context_max_chars()
-    cached = _get_cached_session(investigation_id)
+    cache_key = _cache_key(case_id=case_id, investigation_id=investigation_id)
+    limit = _case_context_max_chars() if case_id else context_max_chars()
+    cached = _get_cached_session(cache_key)
     if cached:
         brief = cached.get("brief")
         ctx = str(cached.get("llm_context") or "")
@@ -97,9 +124,19 @@ async def _resolve_brief_and_context(
     if not brief and raw_full:
         brief = await asyncio.to_thread(_build_brief_in_memory, raw_full, query=query)
 
-    llm_ctx = await asyncio.to_thread(build_copilot_llm_context, raw_full, max_chars=limit)
-    if isinstance(brief, dict):
-        _cache_session(investigation_id, brief=brief, llm_context=llm_ctx)
+    if case_id:
+        llm_ctx = await asyncio.to_thread(
+            build_case_copilot_llm_context,
+            case_id,
+            current_investigation_id=investigation_id,
+            current_result=current_result or raw_full,
+            current_query=query,
+            max_chars=limit,
+        )
+    else:
+        llm_ctx = await asyncio.to_thread(build_copilot_llm_context, raw_full, max_chars=limit)
+
+    _cache_session(cache_key, brief=brief if isinstance(brief, dict) else None, llm_context=llm_ctx)
     return brief, llm_ctx
 
 
@@ -108,6 +145,7 @@ async def _prepare_llm_session(
     context: dict[str, Any],
 ) -> dict[str, Any]:
     investigation_id = str(context.get("investigation_id") or "")
+    case_id = str(context.get("case_id") or "")
     result = context.get("result") or {}
     query = str(context.get("query") or result.get("query") or "")
 
@@ -116,8 +154,13 @@ async def _prepare_llm_session(
     if not raw_full:
         raw_full = result
 
-    if not raw_full and not result:
+    # Case scope can answer from sibling investigations even if current result is empty.
+    if not raw_full and not result and not case_id:
         return {"error": "no_data", "answer": "No investigation data available. Complete an investigation first."}
+
+    if case_id and not raw_full and not result:
+        # Still allow case-wide chat when only case_id is known.
+        pass
 
     asyncio.create_task(prewarm_copilot_model(force=True))
 
@@ -129,22 +172,52 @@ async def _prepare_llm_session(
             query=query,
             message=message,
             pack=pack,
+            case_id=case_id,
+            current_result=result if isinstance(result, dict) else None,
         )
     )
     online, (brief, context_json) = await asyncio.gather(online_task, context_task)
     if not online:
-        return {"error": "offline", "answer": _LLM_OFFLINE_MSG, "investigation_id": investigation_id}
+        return {
+            "error": "offline",
+            "answer": _LLM_OFFLINE_MSG,
+            "investigation_id": investigation_id,
+            "case_id": case_id,
+        }
 
-    history = list((pack or {}).get("chat_history") or [])
+    if case_id:
+        case_pack = load_case_copilot_pack(case_id) or {}
+        history = list(case_pack.get("chat_history") or [])
+    else:
+        history = list((pack or {}).get("chat_history") or [])
+
+    if not context_json or context_json in ("{}", "null"):
+        return {
+            "error": "no_data",
+            "answer": "No investigation data available for this case yet. Run at least one investigation.",
+            "investigation_id": investigation_id,
+            "case_id": case_id,
+        }
 
     return {
         "investigation_id": investigation_id,
+        "case_id": case_id,
         "query": query,
         "pack": pack,
         "brief": brief,
         "context_json": context_json,
         "history": history,
+        "scope": "case" if case_id else "investigation",
     }
+
+
+def _persist_chat_turn(session: dict[str, Any], role: str, content: str) -> None:
+    case_id = str(session.get("case_id") or "")
+    investigation_id = str(session.get("investigation_id") or "")
+    if case_id:
+        asyncio.create_task(asyncio.to_thread(append_case_chat_turn, case_id, role, content))
+    elif investigation_id:
+        asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, role, content))
 
 
 async def answer_copilot_async(message: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -161,6 +234,7 @@ async def answer_copilot_async(message: str, context: dict[str, Any]) -> dict[st
         }
 
     investigation_id = session.get("investigation_id", "")
+    case_id = session.get("case_id", "")
     try:
         answer = await chat_with_qwen(
             message,
@@ -171,19 +245,20 @@ async def answer_copilot_async(message: str, context: dict[str, Any]) -> dict[st
         logger.warning("Copilot LLM failed: %r", exc)
         return {
             "answer": f"Copilot LLM request failed: {exc!r}\n\n{_LLM_OFFLINE_MSG}",
-            "data": {"investigation_id": investigation_id, "error": repr(exc)},
+            "data": {"investigation_id": investigation_id, "case_id": case_id, "error": repr(exc)},
             "engine": "error",
         }
 
-    if investigation_id:
-        asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "user", message))
-        asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "assistant", answer))
+    _persist_chat_turn(session, "user", message)
+    _persist_chat_turn(session, "assistant", answer)
 
     brief = session.get("brief")
     return {
         "answer": answer,
         "data": {
             "investigation_id": investigation_id,
+            "case_id": case_id,
+            "scope": session.get("scope") or "investigation",
             "model": copilot_model(),
             "mode": "llm",
             "brief_status": brief.get("status") if isinstance(brief, dict) else None,
@@ -204,7 +279,6 @@ async def stream_copilot_events(message: str, context: dict[str, Any]) -> AsyncI
         yield {"done": True, "answer": session["answer"]}
         return
 
-    investigation_id = str(session.get("investigation_id") or "")
     parts: list[str] = []
 
     try:
@@ -220,9 +294,8 @@ async def stream_copilot_events(message: str, context: dict[str, Any]) -> AsyncI
         if not answer:
             raise RuntimeError("Empty response from Ollama stream")
 
-        if investigation_id:
-            asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "user", message))
-            asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "assistant", answer))
+        _persist_chat_turn(session, "user", message)
+        _persist_chat_turn(session, "assistant", answer)
 
         brief = session.get("brief")
         yield {
@@ -231,6 +304,8 @@ async def stream_copilot_events(message: str, context: dict[str, Any]) -> AsyncI
             "engine": "qwen",
             "mode": "llm_stream",
             "model": copilot_model(),
+            "scope": session.get("scope") or "investigation",
+            "case_id": session.get("case_id") or "",
             "brief_status": brief.get("status") if isinstance(brief, dict) else None,
         }
     except Exception as exc:
@@ -243,11 +318,16 @@ async def stream_copilot_events(message: str, context: dict[str, Any]) -> AsyncI
             )
             if parts:
                 answer = "".join(parts) + answer
-            if investigation_id:
-                asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "user", message))
-                asyncio.create_task(asyncio.to_thread(append_chat_turn, investigation_id, "assistant", answer))
+            _persist_chat_turn(session, "user", message)
+            _persist_chat_turn(session, "assistant", answer)
             yield {"token": answer[len("".join(parts)):] if parts else answer}
-            yield {"done": True, "answer": answer, "engine": "qwen", "mode": "llm_fallback"}
+            yield {
+                "done": True,
+                "answer": answer,
+                "engine": "qwen",
+                "mode": "llm_fallback",
+                "scope": session.get("scope") or "investigation",
+            }
         except Exception as exc2:
             logger.warning("Copilot fallback also failed: %r", exc2)
             partial = "".join(parts).strip()

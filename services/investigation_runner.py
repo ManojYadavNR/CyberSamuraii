@@ -105,7 +105,7 @@ async def _emit_email_collection_partial(
     if gravatar_tr and gravatar_tr.data:
         public_profiles = list(gravatar_tr.data) if isinstance(gravatar_tr.data, list) else [gravatar_tr.data]
 
-    confirmed, public_data, leads, _summary = build_email_investigation(tool_results, email, public_profiles)
+    confirmed, public_data, leads, summary = build_email_investigation(tool_results, email, public_profiles)
     public_data = enrich_public_profiles(public_data)
     confirmed = enrich_confirmed_findings(confirmed, email=email, public_profiles=public_data)
     fusion = build_fusion_output(
@@ -121,6 +121,10 @@ async def _emit_email_collection_partial(
         "status": "running",
         "fusion": to_json_safe(fusion.model_dump()),
         "tool_results": to_json_safe([tr.model_dump() for tr in tool_results]),
+        "confirmed_findings": to_json_safe(confirmed),
+        "public_profile_data": to_json_safe(public_data),
+        "investigation_leads": to_json_safe(leads),
+        "scan_summary": to_json_safe(summary),
         "fusion_score": fusion.fusion_score,
         "tools_done": len(tool_results),
         "tools_total": tools_total,
@@ -134,12 +138,19 @@ async def _emit_email_collection_partial(
 
 
 def get_investigation(investigation_id: str) -> dict[str, Any] | None:
+    from services.investigation_cache import expire_stale_running_record
+
     cached = _investigations.get(investigation_id)
     if cached:
+        expired = expire_stale_running_record(cached)
+        if expired is not None:
+            _investigations[investigation_id] = expired
+            return to_json_safe(expired)
         return to_json_safe(cached)
 
     from_disk = load_investigation_record(investigation_id)
     if from_disk:
+        from_disk = expire_stale_running_record(from_disk) or from_disk
         from_disk = to_json_safe(from_disk)
         _investigations[investigation_id] = from_disk
         return from_disk
@@ -148,6 +159,7 @@ def get_investigation(investigation_id: str) -> dict[str, Any] | None:
 
     loaded = load_investigation_from_db(investigation_id)
     if loaded:
+        loaded = expire_stale_running_record(loaded) or loaded
         loaded = to_json_safe(loaded)
         _investigations[investigation_id] = loaded
         save_investigation_record(loaded)
@@ -194,10 +206,35 @@ class InvestigationRunner:
 
         parsed = parse_investigation_input(query)
         qtype = query_type or parsed.primary_type
-        if parsed.is_multi:
+        # Never demote an explicit/detected image upload into multi-input routing.
+        if parsed.is_multi and qtype != "image":
             qtype = "multi"
 
         async def emit(event: dict[str, Any]) -> None:
+            # Persist partial payloads so poll recovery still has Samurai data if WS drops.
+            if (
+                event.get("phase") == "collection_partial"
+                and event.get("tool_results")
+                and (_investigations.get(investigation_id) or {}).get("status") == "running"
+            ):
+                try:
+                    _cache_investigation({
+                        "id": investigation_id,
+                        "query": query,
+                        "query_type": qtype,
+                        "status": "running",
+                        "partial": True,
+                        "result": {
+                            "feature": "username_search" if qtype in ("username", "auto", None) else qtype,
+                            "query": query,
+                            "tool_results": event.get("tool_results") or [],
+                            "evidence_extraction": event.get("evidence_extraction"),
+                            "fusion": event.get("fusion"),
+                            "identity_profile": event.get("identity_profile"),
+                        },
+                    })
+                except Exception:
+                    pass
             if on_progress:
                 try:
                     await on_progress(to_json_safe({**event, "investigation_id": investigation_id}))
@@ -217,6 +254,9 @@ class InvestigationRunner:
         hb_task = asyncio.create_task(heartbeat())
 
         try:
+            from services.investigation_cache import expire_all_stale_running
+
+            expire_all_stale_running()
             async with investigation_slot():
                 _cache_investigation({
                     "id": investigation_id,
@@ -256,6 +296,17 @@ class InvestigationRunner:
             })
             await emit({"phase": "error", "status": "busy", "error": str(exc)})
             raise
+        except Exception as exc:
+            current = _investigations.get(investigation_id) or {}
+            if current.get("status") == "running" or not current:
+                _cache_investigation({
+                    "id": investigation_id,
+                    "query": query,
+                    "query_type": qtype,
+                    "status": "error",
+                    "error": str(exc),
+                })
+            raise
         finally:
             end_investigation(investigation_id)
             heartbeat_stop.set()
@@ -264,6 +315,27 @@ class InvestigationRunner:
                 await hb_task
             except asyncio.CancelledError:
                 pass
+            # Never leave a zombie "running" record — frontend polls this forever otherwise.
+            current = _investigations.get(investigation_id)
+            if current and current.get("status") == "running":
+                # Keep any partial Samurai/tool payload so recovery can still paint the UI.
+                if current.get("result"):
+                    _cache_investigation({
+                        **current,
+                        "id": investigation_id,
+                        "query": query,
+                        "query_type": qtype,
+                        "status": "complete",
+                        "partial": True,
+                    })
+                else:
+                    _cache_investigation({
+                        "id": investigation_id,
+                        "query": query,
+                        "query_type": qtype,
+                        "status": "error",
+                        "error": "Investigation ended without a final result. Please run again.",
+                    })
 
     async def _execute_investigation(
         self,
@@ -332,6 +404,9 @@ class InvestigationRunner:
                 discovery = DiscoveryConfig(enabled=False)
             elif qtype in ("phone", "infra") and investigation_mode != "deep":
                 discovery = DiscoveryConfig(enabled=False)
+            elif qtype == "image" and investigation_mode == "fast":
+                # Quick image mode: run image tools only (no username hop expansion).
+                discovery = DiscoveryConfig(enabled=False)
             username_profile = tool_profile_for_mode(investigation_mode, feature="username_search")
             email_profile = tool_profile_for_mode(investigation_mode, feature="email_intel")
             person_profile = tool_profile_for_mode(investigation_mode, feature="domain_intel")
@@ -351,31 +426,52 @@ class InvestigationRunner:
                     parsed, timeout_per_tool, emit, discovery_config=discovery
                 )
             elif qtype == "username":
-                result = await self._run_with_progress(
+                username_override = username_tools_override(investigation_mode)
+                run_coro = self._run_with_progress(
                     "username_search",
                     query,
                     timeout_per_tool,
                     emit,
-                    use_username=True,
+                    use_username=investigation_mode != "samurai",
                     tool_profile=username_profile,
-                    tools_override=username_tools_override(investigation_mode),
+                    tools_override=username_override,
                 )
+                if investigation_mode == "samurai":
+                    import os
+
+                    samurai_total = float(os.getenv("SAMURAI_WALL_SEC", "120")) + 25.0
+                    try:
+                        result = await asyncio.wait_for(run_coro, timeout=samurai_total)
+                    except asyncio.TimeoutError:
+                        result = FeatureResult(
+                            feature="username_search",
+                            query=query,
+                            tool_results=[
+                                ToolResult(
+                                    tool="samurai",
+                                    success=False,
+                                    error=f"Samurai investigation exceeded {samurai_total:.0f}s overall budget",
+                                )
+                            ],
+                            warnings=["Samurai overall time budget exceeded"],
+                        )
+                else:
+                    result = await run_coro
             elif qtype == "email":
                 result = await self._run_email(query, timeout_per_tool, emit, profile=email_profile)
             elif qtype == "image":
                 from orchestrator.parallel_config import (
                     DISCOVERY_WALL_SECONDS,
-                    IMAGE_WALL_SECONDS,
                     INVESTIGATION_WALL_SECONDS,
                 )
 
+                # Tool/batch walls inside _run_with_progress bound runtime; no outer
+                # wait_for (it cancelled in-flight ML work and left the executor stuck).
                 wall_start = time.monotonic()
                 deadline = wall_start + INVESTIGATION_WALL_SECONDS
-                stage_budget = min(IMAGE_WALL_SECONDS, max(30.0, deadline - time.monotonic()))
-                run_coro = self._run_with_progress(
+                result = await self._run_with_progress(
                     "image_intel", query, timeout_per_tool, emit, image_profile=image_profile
                 )
-                result = await asyncio.wait_for(run_coro, timeout=stage_budget)
             elif qtype == "domain":
                 result = await self._run_with_progress(
                     "domain_intel", query, timeout_per_tool, emit, tool_profile=person_profile
@@ -598,6 +694,8 @@ class InvestigationRunner:
         username_override = username_tools_override(mode)
 
         if mode == "samurai":
+            import os
+
             seed = (parsed.raw or parsed.username or "").strip()
             if not seed:
                 return FeatureResult(
@@ -611,14 +709,33 @@ class InvestigationRunner:
                         )
                     ],
                 )
-            return await self._run_with_progress(
-                "username_search",
-                seed,
-                timeout,
-                emit,
-                use_username=False,
-                tools_override=username_override,
-            )
+            # Overall hard stop: tool wall + short post-process margin.
+            samurai_total = float(os.getenv("SAMURAI_WALL_SEC", "120")) + 20.0
+            try:
+                return await asyncio.wait_for(
+                    self._run_with_progress(
+                        "username_search",
+                        seed,
+                        min(timeout, float(os.getenv("SAMURAI_WALL_SEC", "120"))),
+                        emit,
+                        use_username=False,
+                        tools_override=username_override,
+                    ),
+                    timeout=samurai_total,
+                )
+            except asyncio.TimeoutError:
+                return FeatureResult(
+                    feature="username_search",
+                    query=seed,
+                    tool_results=[
+                        ToolResult(
+                            tool="samurai",
+                            success=False,
+                            error=f"Samurai investigation exceeded {samurai_total:.0f}s overall budget",
+                        )
+                    ],
+                    warnings=["Samurai overall time budget exceeded"],
+                )
 
         parallel_branches = (MULTI_INPUT_PARALLEL and not dual_combo) or (dual_combo and DUAL_BRANCH_PARALLEL)
         mode = "parallel" if parallel_branches else "sequential"
@@ -833,9 +950,13 @@ class InvestigationRunner:
 
         start = time.monotonic()
         if feature == "image_intel":
-            tool_names = tools_override or get_feature_tools(feature, profile=image_profile)
+            # Profile list is authoritative — registry "fast" drops slow ML tools
+            # (insightface/yolo/ocr) which we still want for image investigations.
             profile_tools = image_tools_for_profile(image_profile)
-            tool_names = [t for t in tool_names if t in profile_tools] or profile_tools
+            if tools_override:
+                tool_names = [t for t in tools_override if t in set(profile_tools)] or list(profile_tools)
+            else:
+                tool_names = list(profile_tools)
         else:
             effective_profile = tool_profile_for_mode(get_investigation_mode(), feature=feature)
             if tool_profile in ("fast", "deep"):
@@ -886,6 +1007,19 @@ class InvestigationRunner:
         ) -> None:
             if not fusion_snapshot:
                 return
+            # Always re-attach Samurai intel when present so a later partial cannot
+            # wipe the social panel payload with evidence_extraction=null.
+            if evidence_extraction is None and any(t.tool == "samurai" and t.success for t in tr_list):
+                from services.evidence.samurai_intel import build_samurai_social_intel
+                from schemas.evidence import EvidenceExtractionOutput
+
+                intel = build_samurai_social_intel(tr_list)
+                if intel:
+                    evidence_extraction = EvidenceExtractionOutput(
+                        samurai_social_intel=intel,
+                        fields_extracted=int(bool(intel.get("instagram"))) + int(bool(intel.get("facebook"))),
+                        platforms_analyzed=int(bool(intel.get("instagram"))) + int(bool(intel.get("facebook"))),
+                    )
             await emit({
                 "phase": "collection_partial",
                 "status": "running",
@@ -995,6 +1129,16 @@ class InvestigationRunner:
 
         async def on_adapter_progress(event: dict[str, Any]) -> None:
             tool = str(event.get("tool") or "")
+            # Live status for long-running tools (keeps WebSocket active, updates UI).
+            if tool == "samurai" or event.get("detail"):
+                await emit({
+                    "phase": "tool",
+                    "tool": tool or "samurai",
+                    "status": event.get("status") or "running",
+                    "detail": event.get("detail"),
+                })
+                if tool == "samurai" or tool not in USERNAME_SCAN_TOOLS:
+                    return
             if tool not in USERNAME_SCAN_TOOLS:
                 return
             snapshot = event.get("results_snapshot")
@@ -1020,6 +1164,7 @@ class InvestigationRunner:
                 await _emit_collection_partial(scan_phase, force=scan_phase == 1)
 
         started_tools: set[str] = set()
+        emitted_tool_done: set[str] = set()
 
         async def run_tool(tool: str) -> tuple[str, ToolResult]:
             from services.investigation_cancel import ensure_not_cancelled
@@ -1043,8 +1188,12 @@ class InvestigationRunner:
                 from orchestrator.parallel_config import PHONEINFOGA_WALL_SEC
                 tool_timeout = max(tool_timeout, PHONEINFOGA_WALL_SEC)
             elif tool == "samurai":
-                tool_timeout = max(tool_timeout, 300.0)
-            progress_cb = on_adapter_progress if tool in USERNAME_SCAN_TOOLS else None
+                import os
+
+                # Hard cap — must finish near ~1.5 min even if Instagram/Facebook is slow.
+                samurai_wall = float(os.getenv("SAMURAI_WALL_SEC", "120"))
+                tool_timeout = min(tool_timeout, samurai_wall)
+            progress_cb = on_adapter_progress if tool in USERNAME_SCAN_TOOLS or tool == "samurai" else None
             # Samurai parses multi-field seeds (username | email | name) — scan_query strips pipes.
             tool_query = query if tool == "samurai" else scan_query
             adapter = self._orchestrator._get_adapter(tool)
@@ -1066,27 +1215,78 @@ class InvestigationRunner:
                     tr = partial
                 else:
                     raise
-            await emit({
-                "phase": "tool",
-                "tool": tool,
-                "status": "done" if tr.success else "failed",
-                "success": tr.success,
-                "execution_time_ms": tr.execution_time_ms,
-                "tool_error": tr.error,
-            })
             safe_tr = _safe_tool_result(tr)
             from services.brief_indexer import on_tool_completed
 
             on_tool_completed(safe_tr, query=query)
-            if feature == "infra_intel":
+
+            # Samurai: ship intel on the tool-done event itself so the UI never depends
+            # on a later collection_partial / complete message (WS drops, reload, etc.).
+            early_evidence = None
+            samurai_intel = None
+            findings_count = 0
+            if tool == "samurai" and safe_tr.success:
+                from services.evidence.samurai_intel import build_samurai_social_intel
+                from schemas.evidence import EvidenceExtractionOutput
+
+                samurai_intel = build_samurai_social_intel([safe_tr])
+                if samurai_intel:
+                    ig_block = samurai_intel.get("instagram") or {}
+                    fb_block = samurai_intel.get("facebook") or {}
+                    findings_count = (
+                        int(bool(ig_block))
+                        + int(bool(fb_block))
+                        + len(ig_block.get("similar_profiles") or [])
+                        + len(fb_block.get("similar_profiles") or [])
+                        + len(fb_block.get("photos") or [])
+                        + len(fb_block.get("personal_details") or {})
+                    )
+                    early_evidence = EvidenceExtractionOutput(
+                        samurai_social_intel=samurai_intel,
+                        fields_extracted=findings_count,
+                        platforms_analyzed=int(bool(samurai_intel.get("instagram")))
+                        + int(bool(samurai_intel.get("facebook"))),
+                    )
+
+            tool_done_event: dict[str, Any] = {
+                "phase": "tool",
+                "tool": tool,
+                "status": "done" if safe_tr.success else "failed",
+                "success": safe_tr.success,
+                "execution_time_ms": safe_tr.execution_time_ms,
+                "tool_error": safe_tr.error,
+                "detail": safe_tr.raw_output
+                or ("Samurai collection complete" if tool == "samurai" and safe_tr.success else None),
+            }
+            if tool == "samurai":
+                tool_done_event["findings_count"] = findings_count
+                tool_done_event["tool_result"] = to_json_safe(safe_tr.model_dump())
+                if samurai_intel:
+                    tool_done_event["samurai_social_intel"] = to_json_safe(samurai_intel)
+                if early_evidence:
+                    tool_done_event["evidence_extraction"] = to_json_safe(early_evidence.model_dump())
+            await emit(tool_done_event)
+            emitted_tool_done.add(tool)
+
+            if feature in ("infra_intel", "image_intel") or tool == "samurai":
                 completed[tool] = safe_tr
                 partial_tr = [completed[t] for t in tool_names if t in completed]
                 if partial_tr:
                     partial_fusion = build_fusion_output(partial_tr, feature, query)
-                    await _emit_generic_partial(partial_fusion, partial_tr)
+                    await _emit_generic_partial(
+                        partial_fusion,
+                        partial_tr,
+                        evidence_extraction=early_evidence,
+                    )
             return tool, safe_tr
 
-        from orchestrator.parallel_config import batch_wall_seconds, effective_wall_seconds, feature_wall_seconds
+        from orchestrator.parallel_config import (
+            IMAGE_IO_TOOL_WALL_SEC,
+            IMAGE_ML_TOOL_WALL_SEC,
+            batch_wall_seconds,
+            effective_wall_seconds,
+            feature_wall_seconds,
+        )
         from orchestrator.parallel_runner import execute_tools_parallel
 
         def _finalize_wall_tool_result(tool: str, tr: ToolResult | None) -> ToolResult:
@@ -1125,6 +1325,11 @@ class InvestigationRunner:
             )
 
         async def _emit_tool_final(tr: ToolResult) -> None:
+            # run_tool already emitted a rich tool-done (incl. Samurai intel). Skip
+            # the bare duplicate so the UI does not lose findings_count / payload.
+            if tr.tool in emitted_tool_done:
+                return
+            emitted_tool_done.add(tr.tool)
             await emit({
                 "phase": "tool",
                 "tool": tr.tool,
@@ -1132,6 +1337,7 @@ class InvestigationRunner:
                 "success": tr.success,
                 "execution_time_ms": tr.execution_time_ms,
                 "tool_error": tr.error,
+                "detail": tr.raw_output,
             })
 
         async def _run_one(tool: str) -> ToolResult:
@@ -1164,6 +1370,15 @@ class InvestigationRunner:
         def _tool_wall_sec(tool: str) -> float:
             floor = effective_tool_timeout(tool, default_timeout)
             base = max(_parallel_wall_for_tools(), floor)
+            if tool == "samurai":
+                import os
+
+                return min(base, float(os.getenv("SAMURAI_WALL_SEC", "120")))
+            if feature == "image_intel":
+                # Cap image tools so one model download cannot freeze the run.
+                if is_ml_image_tool(tool):
+                    return min(base, IMAGE_ML_TOOL_WALL_SEC)
+                return min(base, IMAGE_IO_TOOL_WALL_SEC)
             if feature == "infra_intel":
                 from orchestrator.parallel_config import PHONE_SOCIAL_INTEL_WALL_SEC, PHONE_WALL_SEC
                 from services.query_detector import detect_query_type
@@ -1189,37 +1404,38 @@ class InvestigationRunner:
             getter = getattr(adapter, "_partial_tool_result", None)
             return getter() if callable(getter) else None
 
-        wall = feature_wall_seconds(feature) if feature != "image_intel" else None
-        if wall:
-            per_tool_wall = _parallel_wall_for_tools()
-            concurrency = effective_tool_concurrency(feature, feature_tool_concurrency(feature))
-            batch_wall = batch_wall_seconds(feature, len(tool_names), concurrency or 1)
+        # Image uses the same wall-clock runner as other features (prevents hangs).
+        per_tool_wall = (
+            feature_wall_seconds(feature)
+            if feature == "image_intel"
+            else _parallel_wall_for_tools()
+        )
+        concurrency = effective_tool_concurrency(feature, feature_tool_concurrency(feature))
+        if feature == "image_intel":
+            # IO tools share concurrency; ML tools are serialized via image_ml_sem.
+            concurrency = max(concurrency or 1, max_io_tool_concurrency())
+        batch_wall = batch_wall_seconds(feature, len(tool_names), concurrency or 1)
+        if tool_names:
             batch_wall = max(batch_wall, per_tool_wall, max(_tool_wall_sec(t) for t in tool_names))
-            tool_result_list, _ = await execute_tools_parallel(
-                tool_names,
-                _run_one,
-                wall_sec=per_tool_wall,
-                max_batch_sec=batch_wall,
-                max_concurrency=concurrency,
-                tool_wall_sec=_tool_wall_sec,
-                partial_result_for=_partial_for,
-            )
-            from services.investigation_cancel import ensure_not_cancelled
+        tool_result_list, _ = await execute_tools_parallel(
+            tool_names,
+            _run_one,
+            wall_sec=per_tool_wall,
+            max_batch_sec=batch_wall,
+            max_concurrency=concurrency,
+            tool_wall_sec=_tool_wall_sec,
+            partial_result_for=_partial_for,
+        )
+        from services.investigation_cancel import ensure_not_cancelled
 
-            ensure_not_cancelled()
-            by_tool = {tr.tool: tr for tr in tool_result_list}
-            tool_results = []
-            for tool in tool_names:
-                finalized = _finalize_wall_tool_result(tool, by_tool.get(tool))
-                completed[tool] = finalized
-                tool_results.append(finalized)
-                await _emit_tool_final(finalized)
-        else:
-            tasks = [asyncio.create_task(run_tool(tool)) for tool in tool_names]
-            for task in asyncio.as_completed(tasks):
-                tool, tr = await task
-                completed[tool] = tr
-            tool_results = [completed[tool] for tool in tool_names]
+        ensure_not_cancelled()
+        by_tool = {tr.tool: tr for tr in tool_result_list}
+        tool_results = []
+        for tool in tool_names:
+            finalized = _finalize_wall_tool_result(tool, by_tool.get(tool))
+            completed[tool] = finalized
+            tool_results.append(finalized)
+            await _emit_tool_final(finalized)
 
         await emit({"phase": "fusion", "status": "running"})
         normalized_results = normalize_tool_results(tool_results)
@@ -1254,16 +1470,30 @@ class InvestigationRunner:
             await emit({"phase": "image_intelligence", "status": "running"})
             await emit({"phase": "reverse_image_discovery", "status": "running"})
 
+            from schemas.reverse_image import ReverseImageDiscoveryOutput
+
+            async def _reverse_bounded():
+                try:
+                    return await asyncio.wait_for(
+                        rev_engine.discover(
+                            scan_query,
+                            seed_query=query,
+                            context=search_context,
+                            on_progress=emit,
+                        ),
+                        timeout=75.0,
+                    )
+                except asyncio.TimeoutError:
+                    return ReverseImageDiscoveryOutput(
+                        seed_image=scan_query,
+                        sources_failed=["reverse_discovery:Timeout"],
+                    )
+
             intel, reverse_image_discovery = await asyncio.gather(
                 image_intelligence_engine.analyze(
                     scan_query, tool_results=tool_results, fast=fast,
                 ),
-                rev_engine.discover(
-                    scan_query,
-                    seed_query=query,
-                    context=search_context,
-                    on_progress=emit,
-                ),
+                _reverse_bounded(),
             )
 
             fusion = image_intelligence_engine.merge_into_fusion(fusion, intel)
@@ -1301,15 +1531,22 @@ class InvestigationRunner:
 
         evidence_extraction = None
         identity_profile = None
-        if fusion and fusion.deduplicated_entities:
+        is_samurai_mode = get_investigation_mode() == "samurai" or tool_names == ["samurai"]
+
+        # Always attach Samurai social intel when present — even if fusion was empty before.
+        has_samurai = any(tr.tool == "samurai" and tr.success for tr in tool_results)
+        if fusion and (fusion.deduplicated_entities or has_samurai):
             from services.evidence.engine import evidence_engine
 
             await emit({"phase": "evidence_extraction", "status": "running"})
+            # Samurai mode prioritizes social payload speed — skip heavy linguistic ML.
+            run_ling = not is_samurai_mode
             fusion, evidence_extraction = await evidence_engine.extract(
                 fusion,
                 seed_query=query,
-                enrich_public_profiles=use_username,
+                enrich_public_profiles=use_username and not is_samurai_mode,
                 tool_results=tool_results,
+                run_linguistic=run_ling,
             )
             identity_profile = build_identity_profile(
                 seed_query=query,
@@ -1330,7 +1567,7 @@ class InvestigationRunner:
                 evidence_extraction=evidence_extraction,
                 identity_profile=identity_profile,
             )
-            if use_username:
+            if use_username and not is_samurai_mode:
                 await _emit_live_profile_snapshot(
                     fusion,
                     scan_phase=2,
@@ -1341,25 +1578,29 @@ class InvestigationRunner:
                     identity_profile=identity_profile,
                 )
 
-        await emit({"phase": "correlation", "status": "running"})
-        correlation = await correlation_engine.correlate(fusion, seed_query=query)
-        await emit({"phase": "correlation", "status": "done", "clusters": correlation.total_clusters})
+        # Samurai mode: skip slow correlation/graph so results reach the UI immediately.
+        correlation = None
+        graph = None
+        if not is_samurai_mode:
+            await emit({"phase": "correlation", "status": "running"})
+            correlation = await correlation_engine.correlate(fusion, seed_query=query)
+            await emit({"phase": "correlation", "status": "done", "clusters": correlation.total_clusters})
 
-        await emit({"phase": "graph", "status": "running"})
-        graph = graph_engine.analyze(
-            fusion,
-            correlation,
-            seed_query=query,
-            identity_profile=identity_profile,
-            evidence_extraction=evidence_extraction,
-        )
-        await emit({"phase": "graph", "status": "done", "nodes": graph.node_count})
-        await _emit_generic_partial(
-            fusion,
-            tool_results,
-            evidence_extraction=evidence_extraction,
-            identity_profile=identity_profile,
-        )
+            await emit({"phase": "graph", "status": "running"})
+            graph = graph_engine.analyze(
+                fusion,
+                correlation,
+                seed_query=query,
+                identity_profile=identity_profile,
+                evidence_extraction=evidence_extraction,
+            )
+            await emit({"phase": "graph", "status": "done", "nodes": graph.node_count})
+            await _emit_generic_partial(
+                fusion,
+                tool_results,
+                evidence_extraction=evidence_extraction,
+                identity_profile=identity_profile,
+            )
 
         succeeded = sum(1 for r in tool_results if r.success)
         return FeatureResult(

@@ -158,7 +158,7 @@ export function ProgressTracker({ compact = false, technical = false }: { compac
       {investigatorProgress.length > 0 && (
         <div className="mb-4 grid gap-2 sm:grid-cols-2">
           {investigatorProgress.map((t) => {
-            const findings = toolLiveFindingsCount(result, t.tool, t.detail);
+            const findings = toolLiveFindingsCount(result, t.tool, t.detail, t.findings_count);
             const verified = result ? toolVerifiedFindingsCount(result, t.tool) : 0;
             const scan = result ? toolScanStats(result, t.tool) : null;
             const badge = STATUS_BADGE[t.status] ?? STATUS_BADGE.pending;
@@ -206,7 +206,7 @@ export function ProgressTracker({ compact = false, technical = false }: { compac
                       {!scan && findings > 0 && (
                         <p className="text-xs text-emerald-400/90">{findings} finding(s)</p>
                       )}
-                      {!scan && findings === 0 && !t.error && (
+                      {!scan && findings === 0 && !t.error && !t.detail && t.success === false && (
                         <p className="text-xs text-slate-400">{toolEmptyLabel(t.tool)}</p>
                       )}
                       {scan?.note && (

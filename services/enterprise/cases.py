@@ -156,6 +156,12 @@ def link_investigation(*, case_id: str, investigation_id: str, started_by: str, 
         )
         session.query(_MODELS["Case"]).filter_by(case_id=case_id).update({"status": "ACTIVE"})
         session.commit()
+        try:
+            from services.copilot import invalidate_copilot_cache
+
+            invalidate_copilot_cache(case_id=case_id, investigation_id=investigation_id)
+        except Exception:
+            pass
     except Exception:
         session.rollback()
     finally:

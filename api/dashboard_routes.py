@@ -132,28 +132,35 @@ async def copilot_status(user=Depends(require_permission("view_investigations"))
     }
 
 
-@router.post("/copilot")
-async def copilot_chat(request: CopilotRequest, user=Depends(require_permission("view_investigations"))):
-    context = dict(request.context)
+def _copilot_context_from_request(request: CopilotRequest) -> dict:
+    """Build copilot context — prefers case-wide scope when case_id is present."""
+    context = dict(request.context or {})
+    if request.case_id:
+        context["case_id"] = request.case_id
     if request.investigation_id:
         context["investigation_id"] = request.investigation_id
         inv = get_investigation(request.investigation_id)
         if inv and inv.get("result"):
             context.setdefault("result", inv["result"])
             context.setdefault("query", inv.get("query", ""))
+        # Recover case_id from the investigation record when the client omitted it.
+        if not context.get("case_id") and inv:
+            linked_case = inv.get("case_id") or (inv.get("result") or {}).get("case_id")
+            if linked_case:
+                context["case_id"] = linked_case
+    return context
+
+
+@router.post("/copilot")
+async def copilot_chat(request: CopilotRequest, user=Depends(require_permission("view_investigations"))):
+    context = _copilot_context_from_request(request)
     response = await answer_copilot_async(request.message, context)
     return {"message": request.message, **response}
 
 
 @router.post("/copilot/stream")
 async def copilot_chat_stream(request: CopilotRequest, user=Depends(require_permission("view_investigations"))):
-    context = dict(request.context)
-    if request.investigation_id:
-        context["investigation_id"] = request.investigation_id
-        inv = get_investigation(request.investigation_id)
-        if inv and inv.get("result"):
-            context.setdefault("result", inv["result"])
-            context.setdefault("query", inv.get("query", ""))
+    context = _copilot_context_from_request(request)
 
     async def event_stream():
         async for event in stream_copilot_events(request.message, context):

@@ -7,15 +7,28 @@ from functools import lru_cache
 
 @lru_cache(maxsize=1)
 def insightface_app():
+    import os
+    from contextlib import redirect_stderr, redirect_stdout
+    from io import StringIO
+
+    from services.image_intelligence.runtime import warmup_ml_stack
+
+    warmup_ml_stack()
     from insightface.app import FaceAnalysis
 
-    app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
-    app.prepare(ctx_id=0, det_size=(640, 640))
+    # InsightFace prints provider/model lines to stdout — keep server logs clean.
+    sink = StringIO()
+    with redirect_stdout(sink), redirect_stderr(sink):
+        app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        app.prepare(ctx_id=0, det_size=(640, 640))
     return app
 
 
 @lru_cache(maxsize=1)
 def yolo_model():
+    from services.image_intelligence.runtime import warmup_ml_stack
+
+    warmup_ml_stack()
     from ultralytics import YOLO
 
     return YOLO("yolov8n.pt")
@@ -72,6 +85,9 @@ def facenet_models():
 
 @lru_cache(maxsize=1)
 def easyocr_reader():
+    from services.image_intelligence.runtime import warmup_ml_stack
+
+    warmup_ml_stack()
     import easyocr
 
     return easyocr.Reader(["en"], gpu=False, verbose=False)
@@ -79,9 +95,15 @@ def easyocr_reader():
 
 @lru_cache(maxsize=1)
 def paddle_ocr():
+    from services.image_intelligence.runtime import warmup_ml_stack
+
+    warmup_ml_stack()
     from paddleocr import PaddleOCR
 
-    return PaddleOCR(use_angle_cls=True, lang="en")
+    try:
+        return PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+    except TypeError:
+        return PaddleOCR(use_angle_cls=True, lang="en")
 
 
 GROUNDING_DINO_LABELS = [

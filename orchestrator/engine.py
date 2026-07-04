@@ -314,6 +314,17 @@ class ToolOrchestratorEngine:
             public_profile_data=public_data,
             investigation_leads=leads,
         )
+        await _emit({
+            "phase": "collection_partial",
+            "status": "running",
+            "fusion": to_json_safe(result.fusion.model_dump()) if result.fusion else None,
+            "tool_results": to_json_safe([tr.model_dump() for tr in result.tool_results]),
+            "confirmed_findings": to_json_safe(result.confirmed_findings),
+            "public_profile_data": to_json_safe(result.public_profile_data),
+            "investigation_leads": to_json_safe(result.investigation_leads),
+            "scan_summary": to_json_safe(result.scan_summary),
+            "fusion_score": result.fusion.fusion_score if result.fusion else 0,
+        })
         await _emit_snapshot(result)
         await _emit({
             "phase": "fusion",

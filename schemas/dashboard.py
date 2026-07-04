@@ -34,6 +34,10 @@ class ReviewRequest(BaseModel):
 
 class CopilotRequest(BaseModel):
     investigation_id: str | None = None
+    case_id: str | None = Field(
+        default=None,
+        description="When set, copilot receives ALL investigations linked to this case",
+    )
     message: str = Field(..., min_length=1, max_length=2000)
     context: dict[str, Any] = Field(default_factory=dict)
 

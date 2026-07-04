@@ -2,10 +2,45 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from schemas.common import FeatureResult
 from schemas.intelligence import FieldProvenance
 from services.fusion import build_fusion_output
 from services.multi_input import InvestigationInputs, attribution_seed_from_raw, attribution_seed_query
+
+_COUNT_KEYS = frozenset({
+    "hits", "items", "sites_found", "sites_checked", "verified", "dorks_run", "confirmed_count",
+})
+
+
+def _merge_scan_summaries(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    """Merge branch scan summaries without letting empty counts wipe real hits."""
+    out = dict(base)
+    for key, value in incoming.items():
+        if key not in out:
+            out[key] = value
+            continue
+        existing = out[key]
+        if isinstance(value, dict) and isinstance(existing, dict):
+            merged = dict(existing)
+            for sub_key, sub_val in value.items():
+                if sub_key in _COUNT_KEYS:
+                    try:
+                        merged[sub_key] = max(int(merged.get(sub_key) or 0), int(sub_val or 0))
+                    except (TypeError, ValueError):
+                        if sub_val is not None:
+                            merged[sub_key] = sub_val
+                elif sub_key == "status" and sub_val == "completed":
+                    merged[sub_key] = sub_val
+                elif sub_val not in (None, "", 0, False) and merged.get(sub_key) in (None, "", 0, False):
+                    merged[sub_key] = sub_val
+                elif sub_key == "note" and sub_val and not merged.get("note"):
+                    merged[sub_key] = sub_val
+            out[key] = merged
+        elif value not in (None, "", 0, False):
+            out[key] = value
+    return out
 
 
 async def merge_feature_results(
@@ -38,7 +73,7 @@ async def merge_feature_results(
         public_profile_data.extend(r.public_profile_data or [])
         investigation_leads.extend(r.investigation_leads or [])
         if r.scan_summary:
-            scan_summary.update(r.scan_summary)
+            scan_summary = _merge_scan_summaries(scan_summary, r.scan_summary)
 
     attribution_seed = (
         attribution_seed_query(parsed) if parsed else attribution_seed_from_raw(seed_query)

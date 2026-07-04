@@ -1,47 +1,21 @@
 import { getWsUrl, fetchReviews, fetchInvestigation, apiFetch } from './client';
 import type { InvestigationResult } from '../types';
 import { phoneToolStatuses } from '../lib/phoneIntelView';
+import { toolFindingsCount } from '../lib/uiHelpers';
 import { useInvestigationStore } from '../store/investigationStore';
 import { useAuthStore } from '../store/authStore';
 
 let activeWs: WebSocket | null = null;
 let recoveryAborted = false;
 let userStoppedInvestigation = false;
+/** Bumped on every start/stop so stale recovery loops and late WS events are ignored. */
+let investigationEpoch = 0;
 
 function looksLikePhoneQuery(query: string): boolean {
   const trimmed = query.trim();
   if (!trimmed || trimmed.includes('@')) return false;
   const digits = trimmed.replace(/[^\d+]/g, '');
   return digits.length >= 8 && /^\+?[\d\s().-]{8,}$/.test(trimmed);
-}
-
-function recoveryPauseMessage(queryType: string, mode: string): string {
-  if (queryType === 'image') {
-    return 'Live updates paused — still processing your image on the server. Results will load automatically (often 5–15 min on CPU).';
-  }
-  if (queryType === 'phone' || queryType === 'infra') {
-    return 'Live updates paused — phone OSINT still running on the server (carrier lookup + social registration checks can take a few minutes).';
-  }
-  if (queryType === 'email') {
-    return 'Live updates paused — email investigation still running on the server. Polling for results…';
-  }
-  if (mode === 'deep') {
-    return 'Live updates paused — deep investigation still running on the server. Polling for expansion results…';
-  }
-  return 'Live updates paused — investigation still running on the server. Polling for results…';
-}
-
-function recoveryRunningMessage(queryType: string): string {
-  if (queryType === 'phone' || queryType === 'infra') {
-    return 'Phone OSINT still running — carrier lookup and social platform checks in progress…';
-  }
-  if (queryType === 'image') {
-    return 'Backend still processing your image — results will appear automatically when ready.';
-  }
-  if (queryType === 'email') {
-    return 'Email investigation still running — gathering registrations and profiles…';
-  }
-  return 'Investigation still running on the server — results will appear when ready.';
 }
 
 async function loadReviewsForInvestigation(id: string) {
@@ -55,26 +29,40 @@ async function loadReviewsForInvestigation(id: string) {
 
 async function tryRecoverInvestigation(
   investigationId: string,
-  options?: { isImage?: boolean; isPhone?: boolean; mode?: 'standard' | 'fast' | 'deep' },
+  epoch: number,
+  options?: { isImage?: boolean; isPhone?: boolean; mode?: 'standard' | 'fast' | 'deep' | 'samurai' },
 ): Promise<boolean> {
   const store = useInvestigationStore.getState();
   let notFoundStreak = 0;
   const maxAttempts = options?.mode === 'deep'
     ? 180
+    : options?.mode === 'samurai'
+      ? 60 // ~2.5 min poll window; Samurai wall is ~120s
     : options?.isImage
       ? 180
       : options?.isPhone
         ? 144
         : 72;
-  const pollMs = 5000;
+  const pollMs = options?.mode === 'samurai' ? 2500 : 5000;
+
+  const isCurrent = () =>
+    epoch === investigationEpoch
+    && useInvestigationStore.getState().investigationId === investigationId
+    && useInvestigationStore.getState().status === 'running';
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    if (recoveryAborted || useInvestigationStore.getState().status !== 'running') {
+    if (recoveryAborted || !isCurrent()) {
       return useInvestigationStore.getState().status === 'complete';
     }
     await new Promise((resolve) => setTimeout(resolve, pollMs));
+    if (!isCurrent()) {
+      return useInvestigationStore.getState().status === 'complete';
+    }
     try {
       const inv = await fetchInvestigation(investigationId);
+      if (!isCurrent()) {
+        return useInvestigationStore.getState().status === 'complete';
+      }
       notFoundStreak = 0;
       if (inv.status === 'complete' && inv.result) {
         store.setComplete(inv.id, inv.result);
@@ -88,7 +76,12 @@ async function tryRecoverInvestigation(
         await loadReviewsForInvestigation(inv.id);
         return true;
       }
-      if (inv.status === 'error') {
+      if (inv.status === 'error' || inv.status === 'cancelled') {
+        // Prefer any partial result already on disk over a blank error screen.
+        if (inv.result && (inv.result as InvestigationResult).tool_results?.length) {
+          store.setComplete(inv.id, inv.result as InvestigationResult);
+          return true;
+        }
         store.setError(
           typeof inv.error === 'string' && inv.error
             ? inv.error
@@ -96,17 +89,25 @@ async function tryRecoverInvestigation(
         );
         return false;
       }
-      if (inv.status === 'running') {
-        const qt = useInvestigationStore.getState().queryType;
-        useInvestigationStore.setState({
-          error: recoveryRunningMessage(qt),
-        });
+      // status === running with partial result: paint UI immediately, keep polling for complete.
+      if (inv.status === 'running' && inv.result) {
+        store.setPartialResult(inv.result as Partial<InvestigationResult>);
+        const mode = useInvestigationStore.getState().investigationMode;
+        const partial = inv.result as InvestigationResult;
+        const hasSamurai = partial.tool_results?.some((t) => t.tool === 'samurai' && t.success)
+          || Boolean(partial.evidence_extraction?.samurai_social_intel);
+        if (mode === 'samurai' && hasSamurai) {
+          store.setComplete(inv.id, partial);
+          await loadReviewsForInvestigation(inv.id);
+          return true;
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '';
       if (message.includes('not found') || message.includes('404')) {
         notFoundStreak += 1;
         if (notFoundStreak >= 3) {
+          if (!isCurrent()) return false;
           const qt = useInvestigationStore.getState().queryType;
           useInvestigationStore.getState().setError(
             qt === 'image'
@@ -125,6 +126,7 @@ export function stopInvestigation(): void {
   const store = useInvestigationStore.getState();
   if (store.status !== 'running') return;
 
+  investigationEpoch += 1;
   recoveryAborted = true;
   userStoppedInvestigation = true;
 
@@ -173,6 +175,9 @@ export function startInvestigation(
     store.setError('An investigation is already running. Wait for it to finish before starting another.');
     return;
   }
+  // Invalidate any in-flight recovery / late WS handlers from prior runs.
+  investigationEpoch += 1;
+  const epoch = investigationEpoch;
   recoveryAborted = false;
   userStoppedInvestigation = false;
   store.reset();
@@ -212,7 +217,7 @@ export function startInvestigation(
 
   const imageProfile = investigationMode === 'deep' ? 'deep' : 'fast';
   const timeoutPerTool = investigationMode === 'samurai'
-    ? 360
+    ? 130
     : investigationMode === 'deep'
     ? 300
     : isImage
@@ -251,8 +256,23 @@ export function startInvestigation(
   };
 
   ws.onmessage = (event) => {
+    // Ignore late events from a previous investigation after stop/restart/complete.
+    if (epoch !== investigationEpoch) return;
+
     const data = JSON.parse(event.data);
     const s = useInvestigationStore.getState();
+
+    // Once complete, ignore everything except a matching finished payload.
+    if (s.status === 'complete') {
+      if (
+        (data.phase === 'finished' || data.phase === 'complete')
+        && data.result
+        && data.investigation_id === s.investigationId
+      ) {
+        s.setComplete(data.investigation_id, data.result as InvestigationResult);
+      }
+      return;
+    }
 
     if (data.investigation_id) {
       useInvestigationStore.setState({ investigationId: data.investigation_id });
@@ -351,12 +371,52 @@ export function startInvestigation(
         data.status === 'running' ? 'running'
         : data.status === 'pending' ? 'pending'
         : data.success ? 'done' : 'failed';
+      const findingsCount = typeof data.findings_count === 'number' ? data.findings_count : undefined;
       s.updateToolProgress(data.tool, {
         status: toolStatus,
         success: data.success,
         execution_time_ms: data.execution_time_ms,
         error: data.tool_error ?? data.error,
+        ...(data.detail ? { detail: String(data.detail) } : {}),
+        ...(findingsCount != null ? { findings_count: findingsCount } : {}),
       });
+
+      // Samurai ships tool_result + intel on tool-done — apply immediately so the
+      // Intelligence panel is not empty while post-processing / WS finish races.
+      if (
+        data.tool === 'samurai'
+        && (data.status === 'done' || data.success)
+        && (data.tool_result || data.samurai_social_intel || data.evidence_extraction)
+      ) {
+        const existing = useInvestigationStore.getState().result;
+        const toolResults = data.tool_result
+          ? [data.tool_result]
+          : (existing?.tool_results ?? []);
+        const evidenceExtraction = data.evidence_extraction
+          ?? (data.samurai_social_intel
+            ? {
+                ...(existing?.evidence_extraction ?? {}),
+                samurai_social_intel: data.samurai_social_intel,
+              }
+            : existing?.evidence_extraction);
+        const partial = {
+          feature: existing?.feature ?? 'username_search',
+          query: useInvestigationStore.getState().query,
+          tool_results: toolResults,
+          evidence_extraction: evidenceExtraction,
+          fusion: existing?.fusion ?? data.fusion,
+        } as InvestigationResult;
+        s.setPartialResult(partial);
+        // Samurai mode is single-tool — mark complete as soon as intel arrives.
+        if (
+          useInvestigationStore.getState().investigationMode === 'samurai'
+          && data.success
+          && data.investigation_id
+        ) {
+          const painted = useInvestigationStore.getState().result ?? partial;
+          s.setComplete(data.investigation_id, painted);
+        }
+      }
     } else if (data.phase === 'reverse_image_discovery') {
       s.setPhase('reverse_image_discovery');
       const running = data.status === 'running';
@@ -391,21 +451,28 @@ export function startInvestigation(
     } else if (data.phase === 'collection_partial') {
       s.setPhase('tool');
       const query = useInvestigationStore.getState().query;
-      s.setPartialResult(
-        {
-          fusion: data.fusion,
-          identity_profile: data.identity_profile,
-          evidence_extraction: data.evidence_extraction,
-          correlation: data.correlation,
-          graph: data.graph,
-          tool_results: data.tool_results,
-        },
-        {
+      const partialPayload = {
+        fusion: data.fusion,
+        identity_profile: data.identity_profile,
+        evidence_extraction: data.evidence_extraction,
+        correlation: data.correlation,
+        graph: data.graph,
+        tool_results: data.tool_results,
+        confirmed_findings: data.confirmed_findings,
+        public_profile_data: data.public_profile_data,
+        investigation_leads: data.investigation_leads,
+        scan_summary: data.scan_summary,
+      };
+      // If Samurai already marked complete, still merge richer partial data.
+      if (useInvestigationStore.getState().status === 'complete') {
+        s.updateResult(partialPayload);
+      } else {
+        s.setPartialResult(partialPayload, {
           scanPhase: data.scan_phase,
           sitesChecked: data.sites_checked,
           sitesTotal: data.sites_total,
-        },
-      );
+        });
+      }
       if (Array.isArray(data.tool_results) && data.tool_results.length > 0) {
         const partialResult = {
           feature: useInvestigationStore.getState().result?.feature ?? 'infra_intel',
@@ -417,6 +484,30 @@ export function startInvestigation(
             s.updateToolProgress(toolStatus.tool, { detail: toolStatus.detail });
           }
         }
+        const samuraiTr = data.tool_results.find(
+          (t: { tool?: string; success?: boolean; raw_output?: string }) => t.tool === 'samurai' && t.success,
+        );
+        if (samuraiTr) {
+          const n = toolFindingsCount(
+            { tool_results: data.tool_results, query, feature: 'username_search' } as InvestigationResult,
+            'samurai',
+          );
+          s.updateToolProgress('samurai', {
+            status: 'done',
+            success: true,
+            findings_count: n,
+            detail: samuraiTr.raw_output || 'Samurai collection complete',
+          });
+        }
+      }
+      if (
+        useInvestigationStore.getState().investigationMode === 'samurai'
+        && useInvestigationStore.getState().status === 'running'
+        && data.investigation_id
+        && (data.evidence_extraction?.samurai_social_intel || data.tool_results?.length)
+      ) {
+        const painted = useInvestigationStore.getState().result;
+        if (painted) s.setComplete(data.investigation_id, painted);
       }
     } else if (data.phase === 'scan_progress') {
       s.setPhase('tool');
@@ -465,6 +556,11 @@ export function startInvestigation(
 
     if (data.phase === 'finished' || data.phase === 'complete') {
       const result = data.result as InvestigationResult;
+      if (!result) {
+        wsFinished = true;
+        ws.close();
+        return;
+      }
       s.setComplete(data.investigation_id, result);
       useInvestigationStore.getState().addRecent({
         id: data.investigation_id,
@@ -480,14 +576,16 @@ export function startInvestigation(
   };
 
   ws.onerror = () => {
-    if (!wsFinished) {
-      useInvestigationStore.getState().setError('WebSocket connection failed. Is the backend running on port 8000?');
+    if (epoch !== investigationEpoch) return;
+    if (!wsFinished && useInvestigationStore.getState().status === 'running') {
+      // Do not surface a hard error — onclose recovery will poll for results.
     }
   };
 
   ws.onclose = () => {
     if (activeWs !== ws) return;
     activeWs = null;
+    if (epoch !== investigationEpoch) return;
     if (wsFinished || userStoppedInvestigation) return;
     const s = useInvestigationStore.getState();
     if (s.status !== 'running') return;
@@ -495,15 +593,13 @@ export function startInvestigation(
     const investigationId = s.investigationId;
     if (investigationId) {
       const qt = s.queryType;
-      const mode = s.investigationMode;
-      useInvestigationStore.setState({
-        error: recoveryPauseMessage(qt, mode),
-      });
-      void tryRecoverInvestigation(investigationId, {
+      // Silent recovery only — never force the tool card back to a fake RUNNING state.
+      void tryRecoverInvestigation(investigationId, epoch, {
         isImage: qt === 'image',
         isPhone: qt === 'phone' || qt === 'infra',
         mode: s.investigationMode,
       }).then((recovered) => {
+        if (epoch !== investigationEpoch) return;
         if (recovered) {
           useInvestigationStore.setState({ error: null });
           return;

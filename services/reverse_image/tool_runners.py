@@ -5,7 +5,14 @@ from __future__ import annotations
 from adapters.image_common import resolve_image_source
 from schemas.common import ToolResult
 from services.image_intelligence.adapter_bridge import findings_to_tool_result
-from services.reverse_image.engine import ReverseImageDiscoveryEngine
+
+# Adapter name → registry source names (prefer fast DDGS over browser upload).
+_ADAPTER_SOURCES: dict[str, list[str]] = {
+    "google_lens": ["google_lens_ddgs", "google_lens"],
+    "bing_visual": ["bing_visual_ddgs"],
+    "yandex_images": ["yandex_images"],
+    "tineye": ["tineye"],
+}
 
 
 async def _run_reverse_source(tool: str, query: str, platform: str) -> ToolResult:
@@ -13,8 +20,20 @@ async def _run_reverse_source(tool: str, query: str, platform: str) -> ToolResul
     if err or not path:
         return ToolResult(tool=tool, success=False, error=err or "no image source")
     try:
-        engine = ReverseImageDiscoveryEngine(source_names=[tool])
-        discovery = await engine.discover(query, seed_query=query)
+        from services.reverse_image.engine import ReverseImageDiscoveryEngine
+
+        source_names = _ADAPTER_SOURCES.get(tool, [tool])
+        # Try fast sources first; stop once we have matches.
+        all_matches = []
+        sources_tried: list[str] = []
+        for name in source_names:
+            engine = ReverseImageDiscoveryEngine(source_names=[name])
+            discovery = await engine.discover(query, seed_query=query)
+            sources_tried.append(name)
+            all_matches.extend(discovery.matches)
+            if all_matches:
+                break
+
         from schemas.image_intelligence import ImageFinding
 
         findings = [
@@ -36,11 +55,12 @@ async def _run_reverse_source(tool: str, query: str, platform: str) -> ToolResul
                     "linked_profiles": m.profile_urls,
                     "similarity_matches": [m.match_url],
                     "evidence_path": m.evidence_path,
+                    "sources_tried": sources_tried,
                     "file": path,
                     "url": url,
                 },
             )
-            for m in discovery.matches
+            for m in all_matches
         ]
         return findings_to_tool_result(tool, findings, platform=platform, group="reverse_image_search")
     except Exception as exc:

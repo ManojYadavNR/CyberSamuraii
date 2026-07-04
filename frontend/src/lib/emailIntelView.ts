@@ -167,17 +167,40 @@ const TOOL_LABELS: Record<string, string> = {
   spiderfoot: 'SpiderFoot',
 };
 
+function _toolRows(result: InvestigationResult, tool: string): {
+  rows: Record<string, unknown>[];
+  summary: Record<string, unknown> | undefined;
+  success?: boolean;
+  error?: string;
+  raw?: string;
+} {
+  const tr = result.tool_results?.find((t) => t.tool === tool);
+  const rows = (tr?.data ?? [])
+    .map((row) => row as Record<string, unknown>)
+    .filter((row) => row.platform !== '_scan_summary');
+  const summary = (tr?.data ?? []).find(
+    (row) => (row as Record<string, unknown>).platform === '_scan_summary',
+  ) as Record<string, unknown> | undefined;
+  return {
+    rows,
+    summary,
+    success: tr?.success,
+    error: tr?.error,
+    raw: tr?.raw_output,
+  };
+}
+
 export function emailToolStatuses(result: InvestigationResult | null): EmailToolStatus[] {
   if (!result) return [];
   const summary = result.scan_summary ?? {};
   const out: EmailToolStatus[] = [];
 
   for (const tool of ['holehe', 'gravatar', 'ghunt', 'theharvester', 'google_dorking', 'spiderfoot']) {
-    const tr = result.tool_results?.find((t) => t.tool === tool);
+    const trInfo = _toolRows(result, tool);
     const row = summary[tool] as Record<string, unknown> | undefined;
-    if (!tr && !row) continue;
+    if (!trInfo.summary && !trInfo.rows.length && trInfo.success === undefined && !row) continue;
 
-    let status = String(row?.status ?? (tr?.success ? 'completed' : 'failed'));
+    let status = String(row?.status ?? (trInfo.success ? 'completed' : trInfo.success === false ? 'failed' : 'completed'));
     let detail: string | undefined;
 
     if (tool === 'holehe') {
@@ -186,25 +209,49 @@ export function emailToolStatuses(result: InvestigationResult | null): EmailTool
         ? `${h.sitesChecked} sites checked · ${h.verified ?? 0} registration(s)`
         : undefined;
     } else if (tool === 'gravatar') {
-      const found = row?.found === true || (result.public_profile_data ?? []).some((p) => p.source === 'gravatar');
+      const found = row?.found === true
+        || trInfo.rows.some((r) => r.platform === 'gravatar')
+        || (result.public_profile_data ?? []).some((p) => p.source === 'gravatar' || p.platform === 'gravatar');
       status = found ? 'found' : 'not_found';
       detail = found ? 'Public Gravatar profile linked' : 'No Gravatar profile';
     } else if (tool === 'theharvester') {
-      if (status === 'skipped') {
-        detail = String(row?.note ?? 'Skipped for consumer mail (Gmail/Yahoo) — use org domain');
+      const skipped = status === 'skipped'
+        || Boolean(trInfo.raw && trInfo.raw.includes('Skipped theHarvester'));
+      if (skipped) {
+        status = 'skipped';
+        detail = String(row?.note ?? trInfo.raw ?? 'Skipped for consumer mail (Gmail/Yahoo) — use org domain');
       } else {
-        detail = `${Number(row?.items ?? 0)} harvested item(s)`;
+        const items = Math.max(Number(row?.items ?? 0), trInfo.rows.length);
+        detail = `${items} harvested item(s)`;
       }
     } else if (tool === 'google_dorking') {
-      detail = `${Number(row?.hits ?? 0)} web mention(s) from ${Number(row?.dorks_run ?? 0)} dork(s)`;
+      const dorkRows = trInfo.rows.filter((r) => {
+        const ct = String(r.check_type || '');
+        return ct === 'google_dork' || ct === 'google_search_discovery' || Boolean(r.url);
+      });
+      const hits = Math.max(
+        Number(row?.hits ?? 0),
+        Number(trInfo.summary?.sites_found ?? 0),
+        dorkRows.length,
+      );
+      const dorks = Math.max(
+        Number(row?.dorks_run ?? 0),
+        Number(trInfo.summary?.sites_checked ?? 0),
+      );
+      const note = String(trInfo.summary?.note ?? row?.note ?? '');
+      detail = note || `${hits} web mention(s) from ${dorks} dork(s)`;
+      if (hits > 0 && status === 'failed') status = 'completed';
     } else if (tool === 'ghunt') {
-      const items = Number(row?.items ?? 0);
+      const items = Math.max(Number(row?.items ?? 0), trInfo.rows.length);
       status = items > 0 ? 'found' : 'not_found';
-      detail = items > 0 ? 'Google account metadata found' : String(row?.note ?? 'No Google profile linked');
+      detail = items > 0
+        ? 'Google account metadata found'
+        : String(row?.note ?? trInfo.raw ?? 'No Google profile linked');
     } else if (tool === 'spiderfoot') {
-      detail = String(row?.note ?? `${Number(row?.items ?? 0)} item(s)`);
-    } else if (tr?.error) {
-      detail = tr.error;
+      const items = Math.max(Number(row?.items ?? 0), trInfo.rows.length);
+      detail = String(row?.note ?? trInfo.summary?.note ?? `${items} item(s)`);
+    } else if (trInfo.error) {
+      detail = trInfo.error;
     }
 
     out.push({ tool, label: TOOL_LABELS[tool] ?? tool, status, detail });
@@ -248,6 +295,29 @@ export function emailDorkHitsFromResult(result: InvestigationResult | null, quer
       snippet: String(finding.snippet ?? '').slice(0, 400),
       platform: platformFromUrl(String(finding.url)),
       category: String(finding.dork_category ?? 'email_search'),
+    });
+  }
+
+  // Prefer live tool_results so the panel matches progress-tracker hits even before
+  // scan_summary / fusion is fully written.
+  for (const row of result.tool_results?.find((t) => t.tool === 'google_dorking')?.data ?? []) {
+    const item = row as Record<string, unknown>;
+    if (item.platform === '_scan_summary') continue;
+    const checkType = String(item.check_type || '');
+    if (checkType && checkType !== 'google_dork' && checkType !== 'google_search_discovery') continue;
+    if (item.query_type && item.query_type !== 'email' && result.feature === 'multi') {
+      // In multi-input, skip username-branch dork rows in the email panel.
+      continue;
+    }
+    const url = String(item.url || item.source_url || '');
+    if (!url.startsWith('http')) continue;
+    add({
+      id: `tr_dork_${url}`,
+      title: String(item.title ?? item.dork_query ?? 'Web mention'),
+      url,
+      snippet: String(item.snippet ?? item.content ?? '').slice(0, 400),
+      platform: platformFromUrl(url),
+      category: String(item.dork_category ?? 'email_search'),
     });
   }
 

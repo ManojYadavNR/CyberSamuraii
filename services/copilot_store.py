@@ -17,6 +17,10 @@ def _path(investigation_id: str) -> Path:
     return COPILOT_DIR / f"{investigation_id}.json"
 
 
+def _case_path(case_id: str) -> Path:
+    return COPILOT_DIR / f"case_{case_id}.json"
+
+
 def save_copilot_pack(pack: dict[str, Any]) -> None:
     inv_id = str(pack.get("investigation_id") or "")
     if not inv_id:
@@ -88,3 +92,37 @@ def append_chat_turn(investigation_id: str, role: str, content: str) -> None:
     history.append({"role": role, "content": content})
     pack["chat_history"] = history[-24:]
     save_copilot_pack(pack)
+
+
+def load_case_copilot_pack(case_id: str) -> dict[str, Any] | None:
+    path = _case_path(case_id)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def save_case_copilot_pack(pack: dict[str, Any]) -> None:
+    case_id = str(pack.get("case_id") or "")
+    if not case_id:
+        return
+    COPILOT_DIR.mkdir(parents=True, exist_ok=True)
+    _case_path(case_id).write_text(json.dumps(to_json_safe(pack), ensure_ascii=False))
+
+
+def append_case_chat_turn(case_id: str, role: str, content: str) -> None:
+    """Persist chat history at case scope (shared across all investigations in the case)."""
+    if not case_id:
+        return
+    pack = load_case_copilot_pack(case_id) or {
+        "case_id": case_id,
+        "pack_version": PACK_VERSION,
+        "chat_history": [],
+    }
+    history = list(pack.get("chat_history") or [])
+    history.append({"role": role, "content": content})
+    pack["chat_history"] = history[-40:]
+    save_case_copilot_pack(pack)

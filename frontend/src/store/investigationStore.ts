@@ -151,7 +151,7 @@ export const useInvestigationStore = create<InvestigationState>((set) => ({
   setPhase: (phase) => set({ phase }),
   setComplete: (id, result) => {
     const firstCluster = result.correlation?.clusters?.[0]?.account_cluster_id ?? null;
-    set({
+    set((s) => ({
       investigationId: id,
       status: 'complete',
       error: null,
@@ -159,7 +159,13 @@ export const useInvestigationStore = create<InvestigationState>((set) => ({
       selectedClusterId: firstCluster,
       phase: 'complete',
       activeTab: 'intelligence',
-    });
+      // Never leave tools stuck on RUNNING after the investigation finishes.
+      toolProgress: s.toolProgress.map((t) =>
+        t.status === 'running' || t.status === 'pending'
+          ? { ...t, status: 'done' as const, success: t.success ?? true }
+          : t,
+      ),
+    }));
   },
   setError: (msg) => set({ status: 'error', error: msg }),
   setReviews: (reviews) => set({ reviews }),
@@ -174,14 +180,52 @@ export const useInvestigationStore = create<InvestigationState>((set) => ({
   setUploadedImage: (previewUrl, filename) =>
     set({ uploadedImagePreview: previewUrl, uploadedImageName: filename }),
   updateResult: (partial) =>
-    set((s) => ({ result: s.result ? { ...s.result, ...partial } : null })),
+    set((s) => {
+      if (!s.result) return s;
+      const mergedTools = Array.isArray(partial.tool_results) && partial.tool_results.length > 0
+        ? partial.tool_results
+        : s.result.tool_results;
+      return {
+        result: {
+          ...s.result,
+          ...partial,
+          tool_results: mergedTools,
+          evidence_extraction: partial.evidence_extraction ?? s.result.evidence_extraction,
+          fusion: partial.fusion ?? s.result.fusion,
+          identity_profile: partial.identity_profile ?? s.result.identity_profile,
+        },
+      };
+    }),
   setPartialResult: (partial, meta) =>
     set((s) => {
+      // Never reopen a finished investigation as RUNNING.
+      if (s.status === 'complete' || s.status === 'error' || s.status === 'idle') {
+        return s;
+      }
       const defaultFeature =
         s.queryType === 'email' ? 'email_intel'
         : s.queryType === 'image' ? 'image_intel'
         : 'username_search';
       const hasPartialTools = Array.isArray(partial.tool_results) && partial.tool_results.length > 0;
+      const prev = s.result;
+      // Never clobber Samurai/tool payloads with null/empty fields from a later partial.
+      const mergedTools = hasPartialTools
+        ? partial.tool_results!
+        : (prev?.tool_results ?? []);
+      const mergedEvidence = partial.evidence_extraction ?? prev?.evidence_extraction;
+      const mergedFusion = partial.fusion ?? prev?.fusion;
+      const mergedConfirmed = Array.isArray(partial.confirmed_findings) && partial.confirmed_findings.length > 0
+        ? partial.confirmed_findings
+        : (prev?.confirmed_findings ?? partial.confirmed_findings);
+      const mergedPublic = Array.isArray(partial.public_profile_data) && partial.public_profile_data.length > 0
+        ? partial.public_profile_data
+        : (prev?.public_profile_data ?? partial.public_profile_data);
+      const mergedLeads = Array.isArray(partial.investigation_leads) && partial.investigation_leads.length > 0
+        ? partial.investigation_leads
+        : (prev?.investigation_leads ?? partial.investigation_leads);
+      const mergedScanSummary = partial.scan_summary
+        ? { ...(prev?.scan_summary ?? {}), ...partial.scan_summary }
+        : prev?.scan_summary;
       return {
       status: 'running',
       phase: meta?.scanPhase === 1 ? 'tool' : (s.phase && s.phase !== 'start' ? s.phase : 'tool'),
@@ -189,13 +233,21 @@ export const useInvestigationStore = create<InvestigationState>((set) => ({
       sitesChecked: meta?.sitesChecked ?? s.sitesChecked,
       sitesTotal: meta?.sitesTotal ?? s.sitesTotal,
       result: {
-        feature: s.result?.feature ?? defaultFeature,
+        feature: prev?.feature ?? defaultFeature,
         query: s.query,
-        tool_results: [],
-        ...s.result,
+        tool_results: mergedTools,
+        ...prev,
         ...partial,
+        tool_results: mergedTools,
+        evidence_extraction: mergedEvidence,
+        fusion: mergedFusion,
+        identity_profile: partial.identity_profile ?? prev?.identity_profile,
+        confirmed_findings: mergedConfirmed,
+        public_profile_data: mergedPublic,
+        investigation_leads: mergedLeads,
+        scan_summary: mergedScanSummary,
       } as InvestigationResult,
-      activeTab: meta?.scanPhase === 1 || hasPartialTools ? 'results' : s.activeTab,
+      activeTab: meta?.scanPhase === 1 || hasPartialTools ? 'intelligence' : s.activeTab,
     };
     }),
   loadFromServer: (id, query, queryType, result) => {

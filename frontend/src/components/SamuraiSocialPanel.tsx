@@ -6,6 +6,8 @@ import {
   dedupeSamuraiMedia,
   facebookItemVisitUrl,
   formatCount,
+  cleanFbDisplayName,
+  isCleanFbDisplayName,
   isDisplayableSamuraiMedia,
   mediaEngagement,
   normalizeComments,
@@ -66,10 +68,17 @@ function FbPhotoGrid({
   sectionKey: string;
 }) {
   if (!items.length) return null;
+  const hasEmbeds = items.some((item) => item.render_as === 'facebook_embed');
   return (
-    <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+    <div
+      className={
+        hasEmbeds
+          ? 'grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+          : 'grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'
+      }
+    >
       {items.map((item, idx) => (
-        <FbMediaCard key={`${sectionKey}_${samuraiMediaKey(item)}`} item={item} index={idx} />
+        <FbMediaCard key={`${sectionKey}_${samuraiMediaKey(item)}_${item.fbid || idx}`} item={item} index={idx} />
       ))}
     </div>
   );
@@ -269,14 +278,22 @@ function extractIgShortcode(url?: string, shortcode?: string): string | undefine
   return match?.[1];
 }
 
-function FacebookEmbedFrame({ slug, height = 520 }: { slug: string; height?: number }) {
+function FacebookEmbedFrame({
+  slug,
+  height = 520,
+  tabs = 'timeline',
+}: {
+  slug: string;
+  height?: number;
+  tabs?: 'timeline' | 'photos' | 'timeline,photos';
+}) {
   const profileUrl = facebookProfileUrl(slug);
-  const src = `https://www.facebook.com/plugins/page.php?href=${encodeURIComponent(profileUrl)}&tabs=timeline&width=500&height=${height}&small_header=false&adapt_container_width=true&hide_cover=false&show_facepile=true`;
+  const src = `https://www.facebook.com/plugins/page.php?href=${encodeURIComponent(profileUrl)}&tabs=${encodeURIComponent(tabs)}&width=540&height=${height}&small_header=false&adapt_container_width=true&hide_cover=false&show_facepile=false`;
   return (
     <iframe
-      title={`Facebook ${slug}`}
+      title={`Facebook ${slug} ${tabs}`}
       src={src}
-      className="w-full rounded-xl border border-blue-500/25 bg-black"
+      className="w-full rounded-xl border border-blue-500/25 bg-slate-950"
       style={{ minHeight: height }}
       loading="lazy"
       sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
@@ -329,11 +346,9 @@ function isFacebookLoginWallText(text: string): boolean {
 }
 
 function SimilarProfileCard({ entry }: { entry: Record<string, unknown> }) {
-  const username = String(entry.username || '');
-  const isInstagram = Boolean(
-    (entry.profile_url as string | undefined)?.includes('instagram.com')
-    || username && !(entry.profile_url as string | undefined)?.includes('facebook.com'),
-  );
+  const username = String(entry.username || '').replace(/^@/, '');
+  const profileUrlRaw = String(entry.profile_url || '');
+  const isInstagram = profileUrlRaw.includes('instagram.com');
   const profileUrl = externalVisitUrl(
     pickMediaUrl(entry.profile_url as string)
     || (isInstagram ? instagramProfileUrl(username) : facebookProfileUrl(username)),
@@ -348,20 +363,16 @@ function SimilarProfileCard({ entry }: { entry: Record<string, unknown> }) {
     })
     .slice(0, 2);
   const isPrivate = entry.is_private === true;
-  const isFacebook = !isInstagram;
+  const displayName = cleanFbDisplayName(String(entry.full_name || ''), username);
 
   return (
     <article className="overflow-hidden rounded-xl border border-amber-500/25 bg-amber-500/5">
       <div className="flex items-start gap-3 p-3">
         {avatar ? (
-          <img src={avatar} alt="" className="h-14 w-14 shrink-0 rounded-full border border-amber-400/30 object-cover" loading="lazy" referrerPolicy="no-referrer" />
+          <img src={avatar} alt="" className="h-14 w-14 shrink-0 rounded-full border border-amber-400/30 object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         ) : isInstagram && username ? (
           <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border border-amber-400/30">
             <InstagramEmbedFrame username={username} height={56} />
-          </div>
-        ) : isFacebook && username ? (
-          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border border-amber-400/30">
-            <FacebookEmbedFrame slug={username} height={56} />
           </div>
         ) : (
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-dashed border-amber-500/30 bg-slate-950 text-lg text-amber-400/60">
@@ -369,7 +380,7 @@ function SimilarProfileCard({ entry }: { entry: Record<string, unknown> }) {
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-white">{String(entry.full_name || entry.username || 'Similar profile')}</p>
+          <p className="font-semibold text-white">{displayName}</p>
           {username && <p className="font-mono text-xs text-amber-200/80">@{username}</p>}
           {isPrivate && <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">Private account</p>}
           {entry.photo_count != null && Number(entry.photo_count) > 0 && (
@@ -535,27 +546,48 @@ function FbMediaCard({
   const engagement = mediaEngagement(item);
   const caption = String(item.title || item.caption || item.text || '').trim();
   const imageCandidates = mediaPreviewUrlCandidates(item, { isVideo });
+  const embedUrl = String(item.embed_url || '');
+  const useEmbed = item.render_as === 'facebook_embed' && Boolean(embedUrl);
 
   return (
     <article className="group overflow-hidden rounded-lg border border-blue-500/20 bg-slate-950/50 transition hover:border-blue-400/40">
-      <div className="relative aspect-square bg-slate-950">
-        <MediaPreview
-          url={preview}
-          alt={caption || `Facebook photo ${index + 1}`}
-          isVideo={isVideo}
-          posterUrl={poster}
-          openHref={visit}
-          imageCandidates={imageCandidates}
-          showExternalLink={false}
-          compact
-        />
+      <div className={`relative bg-slate-950 ${useEmbed ? 'min-h-[280px]' : 'aspect-square'}`}>
+        {useEmbed ? (
+          <iframe
+            title={caption || `Facebook photo ${index + 1}`}
+            src={embedUrl}
+            className="h-[280px] w-full border-0 bg-slate-950"
+            loading="lazy"
+            sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <MediaPreview
+            url={preview}
+            alt={caption || `Facebook photo ${index + 1}`}
+            isVideo={isVideo}
+            posterUrl={poster}
+            openHref={visit}
+            imageCandidates={imageCandidates}
+            showExternalLink
+            compact
+          />
+        )}
       </div>
-      {(caption || engagement.likes != null) && (
-        <div className="p-2">
-          <EngagementBar likes={engagement.likes} views={engagement.views} comments={engagement.comments} />
-          {caption && <p className="mt-1 line-clamp-2 text-[11px] text-slate-500">{caption}</p>}
-        </div>
-      )}
+      <div className="p-2">
+        <EngagementBar likes={engagement.likes} views={engagement.views} comments={engagement.comments} />
+        {caption && <p className="mt-1 line-clamp-2 text-[11px] text-slate-500">{caption}</p>}
+        {visit && (
+          <a
+            href={visit}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="mt-1 inline-flex text-[11px] font-semibold text-blue-300 hover:underline"
+          >
+            Open on Facebook ↗
+          </a>
+        )}
+      </div>
     </article>
   );
 }
@@ -704,11 +736,9 @@ function InstagramSection({ data }: { data: Record<string, unknown> }) {
 
 function FacebookSection({
   data,
-  searchedUsername,
   facebookSlug,
 }: {
   data: Record<string, unknown>;
-  searchedUsername?: string;
   facebookSlug?: string;
 }) {
   const profile = (data.profile as Record<string, unknown> | undefined) ?? {};
@@ -724,57 +754,68 @@ function FacebookSection({
   const friends = (data.friends as Record<string, unknown>[] | undefined) ?? [];
   const similar = (data.similar_profiles as Record<string, unknown>[] | undefined) ?? [];
   const bio = resolveFbBiography(profile, personal);
-  const targetSlug = String(facebookSlug || profile.username || '');
-  const displayName = String(profile.full_name || '').trim();
-  const showName = displayName && displayName.toLowerCase() !== targetSlug.toLowerCase()
-    ? displayName
-    : targetSlug;
+  // Only the Facebook profile username — never the Instagram seed handle.
+  const targetSlug = String(facebookSlug || profile.username || data.username || '').replace(/^@/, '');
+  const showName = cleanFbDisplayName(String(profile.full_name || ''), targetSlug);
   const profilePhotos = (profile.photos as Record<string, unknown>[] | undefined) ?? [];
   const allPhotos = dedupeSamuraiMedia([...photos, ...profilePhotos]).filter(isDisplayableSamuraiMedia);
+  const slugLow = targetSlug.toLowerCase();
 
+  // Strict: profile picture + this profile's album only (never "Others named …").
+  const isOwnMedia = (item: Record<string, unknown>) => {
+    if (item.is_target_profile === false) return false;
+    const source = String(item.source || '');
+    const owner = String(item.owner_username || '').toLowerCase().replace(/^@/, '');
+    if (owner && owner !== slugLow) return false;
+    if (item.type === 'profile_picture') return true;
+    if (
+      (source === 'photos_page' || source === 'photos_box' || source === 'photos_by')
+      && item.is_target_profile === true
+    ) return true;
+    if (source === 'facebook_graph_picture' || source === 'profile_picture') return true;
+    return false;
+  };
+
+  const ownPhotos = allPhotos.filter(isOwnMedia);
   const profilePicRaw = pickMediaUrl(
     profile.profile_pic_url as string,
+    profile.profile_pic as string,
     links.profile_picture as string,
   );
   const profilePicKey = profilePicRaw ? samuraiMediaKey({ url: profilePicRaw }) : null;
 
-  const skipGalleryItem = (item: Record<string, unknown>) => {
-    if (item.type === 'profile_picture') return true;
-    if (profilePicKey && samuraiMediaKey(item) === profilePicKey) return true;
-    return false;
-  };
-
-  const galleryPhotos = dedupeSamuraiMedia(
-    allPhotos.filter((p) => !skipGalleryItem(p) && p.is_target_profile !== false),
-  );
-  const galleryKeys = new Set(galleryPhotos.map(samuraiMediaKey));
-  const relatedPhotos = dedupeSamuraiMedia(
-    allPhotos.filter(
-      (p) => !skipGalleryItem(p)
-        && p.is_target_profile === false
-        && !galleryKeys.has(samuraiMediaKey(p)),
-    ),
-  );
-  const dedupedVideos = dedupeSamuraiMedia(videos.filter((v) => v.is_target_profile !== false && isDisplayableSamuraiMedia(v)));
-  const dedupedReels = dedupeSamuraiMedia(reels.filter((r) => r.is_target_profile !== false && isDisplayableSamuraiMedia(r)));
-  const targetTimeline = timeline.filter((p) => p.is_target_profile !== false || p.is_target_profile == null);
+  // Gallery = this user's posts (exclude avatar duplicate when other posts exist).
+  const postPhotos = ownPhotos.filter((p) => {
+    if (p.type === 'profile_picture') return false;
+    if (profilePicKey && samuraiMediaKey(p) === profilePicKey) return false;
+    return true;
+  });
+  const galleryPhotos = postPhotos.length > 0 ? postPhotos : ownPhotos;
+  const dedupedVideos = dedupeSamuraiMedia(videos.filter((v) => isOwnMedia(v) && isDisplayableSamuraiMedia(v)));
+  const dedupedReels = dedupeSamuraiMedia(reels.filter((r) => isOwnMedia(r) && isDisplayableSamuraiMedia(r)));
+  const targetTimeline = timeline.filter((p) => isOwnMedia(p));
   const hasServerMedia = galleryPhotos.length > 0
-    || relatedPhotos.length > 0
     || dedupedVideos.length > 0
     || dedupedReels.length > 0
     || targetTimeline.length > 0;
-  const embedOnly = data.embed_only === true && !hasServerMedia;
-  const profileVisit = facebookProfileUrl(targetSlug);
   const personalEntries = Object.entries(personal).filter(
     ([key, v]) => key !== 'Similar Profiles' && v != null && String(v).trim(),
   );
   const othersNamedLabel = String(personal['Similar Profiles'] || '').trim();
+  const hasIntel = hasServerMedia || personalEntries.length > 0 || similar.length > 0;
+  // Only show the empty-embed banner when we truly have no Facebook intel.
+  const embedOnly = data.embed_only === true && !hasIntel;
+  const profileVisit = facebookProfileUrl(targetSlug);
   const avatar = resolveMediaUrl(
     pickMediaUrl(
       profile.profile_pic_url as string,
+      profile.profile_pic as string,
       links.profile_picture as string,
+      ownPhotos.find((p) => p.type === 'profile_picture')?.url as string,
+      ownPhotos.find((p) => p.type === 'profile_picture')?.live_url as string,
       galleryPhotos[0]?.thumbnail as string,
       galleryPhotos[0]?.url as string,
+      galleryPhotos[0]?.live_url as string,
     ),
   );
 
@@ -785,37 +826,30 @@ function FacebookSection({
 
   return (
     <div className="space-y-4">
-      {(embedOnly || (!hasServerMedia && targetSlug)) && (
+      {embedOnly && (
         <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-4 py-3 text-sm text-slate-300">
           <p className="font-semibold text-slate-200">Public Facebook view</p>
           <p className="mt-1 text-xs text-slate-400">
-            {embedOnly
-              ? 'Server could not pull Facebook media right now. Profile loads below via Facebook embed in your browser.'
-              : 'Timeline and photos load via Facebook embed when server scraping is limited.'}
+            Server could not pull Facebook media right now. Profile loads below via Facebook embed in your browser.
           </p>
         </div>
       )}
 
       <div className="flex flex-wrap items-start gap-4 rounded-xl border border-blue-500/25 bg-gradient-to-r from-blue-950/30 to-slate-900/40 p-4">
         {avatar ? (
-          <img src={avatar} alt="" className="h-20 w-20 rounded-full border-2 border-blue-400/40 object-cover" loading="lazy" referrerPolicy="no-referrer" />
-        ) : targetSlug ? (
-          <div className="h-28 w-28 shrink-0 overflow-hidden rounded-full border-2 border-blue-400/30">
-            <FacebookEmbedFrame slug={targetSlug} height={112} />
-          </div>
+          <img src={avatar} alt="" className="h-20 w-20 rounded-full border-2 border-blue-400/40 object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         ) : (
           <div className="flex h-20 w-20 items-center justify-center rounded-full border border-dashed border-blue-400/30 bg-slate-950 text-2xl text-blue-400/50">📘</div>
         )}
         <div className="min-w-0 flex-1">
           <h3 className="text-lg font-semibold text-white">{showName}</h3>
           {targetSlug && (
-            <p className="font-mono text-sm text-blue-300">
-              {searchedUsername && searchedUsername.toLowerCase() !== targetSlug.toLowerCase()
-                ? `@${searchedUsername} → facebook.com/${targetSlug}`
-                : `facebook.com/${targetSlug}`}
-            </p>
+            <p className="font-mono text-sm text-blue-300">@{targetSlug}</p>
           )}
-          <ProfileBio bio={bio} hint="Bio may be hidden for locked profiles without Facebook session." />
+          <ProfileBio
+            bio={bio && isCleanFbDisplayName(bio) ? bio : ''}
+            hint={personalEntries.length ? undefined : 'Bio may be hidden for locked profiles without Facebook session.'}
+          />
           <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-400">
             {profile.like_count != null && <span>{Number(profile.like_count).toLocaleString()} likes</span>}
             {profile.friend_count != null && <span>{Number(profile.friend_count).toLocaleString()} friends</span>}
@@ -832,7 +866,7 @@ function FacebookSection({
         </div>
       </div>
 
-      {targetSlug && !hasServerMedia && (
+      {targetSlug && embedOnly && (
         <div>
           <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-blue-400">Profile & timeline</h4>
           <FacebookEmbedFrame slug={targetSlug} height={560} />
@@ -840,31 +874,36 @@ function FacebookSection({
       )}
 
       {personalEntries.length > 0 && (
-        <div>
-          <SamuraiSectionHeader title="Personal information" subtitle={`Details for ${showName}`} />
-          <dl className="mt-3 grid gap-2 rounded border border-slate-800/60 bg-slate-950/30 p-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-emerald-500/25 bg-emerald-950/10 p-4">
+          <SamuraiSectionHeader
+            title="Personal information"
+            subtitle={`About @${targetSlug}`}
+            accent="blue"
+          />
+          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             {personalEntries.map(([key, value]) => (
-              <div key={key}>
-                <dt className="text-[10px] uppercase text-slate-500">{key}</dt>
-                <dd className="mt-0.5 text-sm text-slate-300">{String(value)}</dd>
+              <div key={key} className="rounded-lg border border-slate-800/60 bg-slate-950/40 px-3 py-2">
+                <dt className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/80">{key}</dt>
+                <dd className="mt-1 text-sm leading-relaxed text-slate-100">{String(value)}</dd>
               </div>
             ))}
           </dl>
         </div>
       )}
 
-      {hasTargetMedia && (
+      {targetSlug && (
         <div className="space-y-6 rounded-xl border border-blue-500/25 bg-blue-950/10 p-4">
           <SamuraiSectionHeader
             title={`${showName} — photos, reels & albums`}
-            subtitle={`@${targetSlug} · verified in-app media only`}
+            subtitle={`Only @${targetSlug} — this profile only (not similar accounts)`}
             accent="blue"
           />
 
+          {/* Verified scrapable media for this profile only (profile picture / public album bytes). */}
           {galleryPhotos.length > 0 && (
             <div className="space-y-3">
               <h5 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                Photos ({galleryPhotos.length})
+                Collected photos of @{targetSlug} ({galleryPhotos.length})
               </h5>
               <FbPhotoGrid items={galleryPhotos} sectionKey="target_photos" />
             </div>
@@ -908,6 +947,23 @@ function FacebookSection({
               </div>
             </div>
           )}
+
+          {galleryPhotos.length === 0 && (
+            <p className="text-xs text-slate-500">
+              No public album photos could be collected for @{targetSlug} yet. Profile picture is shown above when available.
+            </p>
+          )}
+
+          {profileVisit && (
+            <a
+              href={`${profileVisit.replace(/\/?$/, '')}/photos`}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex text-xs font-semibold text-blue-300 hover:underline"
+            >
+              Open @{targetSlug} photos on Facebook ↗
+            </a>
+          )}
         </div>
       )}
 
@@ -928,16 +984,8 @@ function FacebookSection({
         </div>
       )}
 
-      {relatedPhotos.length > 0 && (
-        <div className="space-y-3 rounded-xl border border-slate-700/60 bg-slate-950/20 p-4">
-          <SamuraiSectionHeader
-            title={`Photos from similar profiles (${relatedPhotos.length})`}
-            subtitle="Media attributed to other accounts with the same or similar name"
-            accent="amber"
-          />
-          <FbPhotoGrid items={relatedPhotos} sectionKey="similar_photos" />
-        </div>
-      )}
+      {/* Non-target / "Others named …" media is intentionally not shown in Photos —
+          only @targetSlug media appears above. Similar accounts are listed separately. */}
 
       {friends.length > 0 && (
         <div>
@@ -966,6 +1014,41 @@ function FacebookSection({
   );
 }
 
+function facebookDisplayPayload(
+  fb: Record<string, unknown> | null | undefined,
+  slug?: string | null,
+): Record<string, unknown> | null {
+  if (fb && typeof fb === 'object') {
+    // Normalize profile username/name so the UI never shows the Instagram seed handle.
+    const profile = { ...((fb.profile as Record<string, unknown> | undefined) ?? {}) };
+    const target = String(slug || profile.username || '').replace(/^@/, '');
+    if (target) profile.username = target;
+    if (!isCleanFbDisplayName(String(profile.full_name || ''))) {
+      profile.full_name = cleanFbDisplayName(String(profile.full_name || ''), target);
+    }
+    return { ...fb, profile };
+  }
+  const target = (slug || '').trim().replace(/^@/, '');
+  if (!target) return null;
+  const profileUrl = `https://www.facebook.com/${encodeURIComponent(target)}`;
+  return {
+    embed_only: true,
+    profile: {
+      username: target,
+      full_name: cleanFbDisplayName(null, target),
+      profile_url: profileUrl,
+    },
+    links: { profile: profileUrl },
+    photos: [],
+    videos: [],
+    reels: [],
+    timeline_posts: [],
+    friends: [],
+    similar_profiles: [],
+    personal_details: {},
+  };
+}
+
 export function SamuraiSocialPanel() {
   const result = useInvestigationStore((s) => s.result);
   const intel = useMemo(() => samuraiIntelFromResult(result), [result]);
@@ -973,7 +1056,13 @@ export function SamuraiSocialPanel() {
   if (!result || !intel) return null;
 
   const ig = intel.instagram as Record<string, unknown> | null | undefined;
-  const fb = intel.facebook as Record<string, unknown> | null | undefined;
+  const fbRaw = intel.facebook as Record<string, unknown> | null | undefined;
+  const fbSlug = String(
+    intel.facebook_slug
+    || (fbRaw?.profile as Record<string, unknown> | undefined)?.username
+    || '',
+  ).replace(/^@/, '');
+  const fb = facebookDisplayPayload(fbRaw, fbSlug);
   const hasIg = Boolean(ig);
   const hasFb = Boolean(fb);
 
@@ -990,38 +1079,53 @@ export function SamuraiSocialPanel() {
     );
   }
 
+  const fbUsername = String(
+    (fb?.profile as Record<string, unknown> | undefined)?.username
+    || fbSlug
+    || '',
+  );
+  const fbDisplayName = cleanFbDisplayName(
+    String((fb?.profile as Record<string, unknown> | undefined)?.full_name || ''),
+    fbUsername,
+  );
+  const igUsername = String(
+    (ig?.profile as Record<string, unknown> | undefined)?.username
+    || intel.username
+    || '',
+  ).replace(/^@/, '');
+
   return (
     <section className="intel-card overflow-hidden">
       <div className="border-b border-slate-800/80 bg-gradient-to-r from-pink-950/40 via-slate-900 to-blue-950/40 px-5 py-4">
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-fuchsia-400/90">Samurai deep social intel</p>
         <h2 className="mt-1 text-lg font-semibold text-white">
-          Instagram & Facebook — @{intel.username || String(ig?.profile && (ig.profile as Record<string, unknown>).username) || String(fb?.profile && (fb.profile as Record<string, unknown>).username)}
+          {hasIg && hasFb
+            ? `Instagram @${igUsername} · Facebook @${fbUsername}`
+            : hasFb
+              ? `Facebook @${fbUsername}`
+              : `Instagram @${igUsername}`}
         </h2>
         <p className="mt-1 text-xs text-slate-400">
           Profile, posts, photos, and reels — deduplicated gallery with in-app previews.
         </p>
-        {Boolean(intel.facebook_resolution || (ig?.profile as Record<string, unknown> | undefined)?.full_name) && (
-          <div className="mt-2 space-y-1 text-xs text-slate-500">
-            {Boolean((ig?.profile as Record<string, unknown> | undefined)?.full_name) && (
-              <p>Display name: {String((ig?.profile as Record<string, unknown>).full_name)}</p>
-            )}
-            {intel.facebook_resolution && (
-              <p className="text-blue-400/80">
-                Facebook matched via {String(intel.facebook_resolution).replace(/_/g, ' ')}
-                {intel.facebook_slug ? ` → @${intel.facebook_slug}` : ''}
-              </p>
-            )}
-          </div>
+        {hasFb && (
+          <p className="mt-2 text-xs text-blue-400/80">
+            Facebook: {fbDisplayName} · @{fbUsername}
+          </p>
         )}
       </div>
 
       {(hasIg || hasFb) && (
         <div className="flex flex-wrap gap-2 border-b border-slate-800/80 px-5 pt-4 text-xs text-slate-500">
           {hasIg && <span className="rounded-full border border-pink-500/30 bg-pink-500/10 px-3 py-1 text-pink-200">Instagram loaded</span>}
-          {hasFb && <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-blue-200">Facebook loaded</span>}
-          {intel.facebook_error && !hasFb && (
+          {hasFb && (
+            <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-blue-200">
+              {fbRaw ? 'Facebook loaded' : 'Facebook embed'}
+            </span>
+          )}
+          {intel.facebook_error && (
             <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-amber-200">
-              Facebook: {intel.facebook_error}
+              Facebook note: {intel.facebook_error}
             </span>
           )}
         </div>
@@ -1046,21 +1150,17 @@ export function SamuraiSocialPanel() {
             <div className="mb-4 flex items-center gap-2">
               <span className="text-xl">📘</span>
               <h3 className="text-sm font-bold uppercase tracking-wider text-blue-300">Facebook intelligence</h3>
-              {intel.facebook_slug && (
+              {fbUsername && (
                 <span className="rounded border border-blue-500/25 bg-blue-500/10 px-2 py-0.5 font-mono text-[11px] text-blue-200">
-                  @{intel.facebook_slug}
+                  @{fbUsername}
                 </span>
               )}
             </div>
             <FacebookSection
               data={fb!}
-              searchedUsername={intel.username || String(fb?.searched_username || '')}
-              facebookSlug={intel.facebook_slug}
+              facebookSlug={fbUsername}
             />
           </div>
-        )}
-        {intel.facebook_error && !hasFb && (
-          <p className="text-sm text-amber-400">Facebook error: {intel.facebook_error}</p>
         )}
       </div>
     </section>

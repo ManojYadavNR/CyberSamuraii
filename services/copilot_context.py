@@ -369,10 +369,8 @@ def build_fast_chat_context(raw_full: dict[str, Any], *, max_chars: int = 22000)
     return body[:max_chars]
 
 
-def build_copilot_llm_context(raw_full: dict[str, Any], *, max_chars: int = 3500) -> str:
-    """
-    Slim context for fast copilot LLM turns — skips huge identity blobs and caps scanner rows.
-    """
+def _slim_investigation_for_llm(raw_full: dict[str, Any]) -> dict[str, Any]:
+    """Curated single-investigation payload (shared by single + case scopes)."""
     evidence = raw_full.get("evidence_extraction") or {}
     if not isinstance(evidence, dict):
         evidence = {}
@@ -397,8 +395,21 @@ def build_copilot_llm_context(raw_full: dict[str, Any], *, max_chars: int = 3500
             "sentiment": ling.get("sentiment_overview"),
         }
 
+    entities = []
+    if isinstance(fusion, dict):
+        for ent in (fusion.get("deduplicated_entities") or fusion.get("entities") or [])[:20]:
+            if not isinstance(ent, dict):
+                continue
+            entities.append({
+                "type": ent.get("type"),
+                "value": ent.get("value") or ent.get("canonical_value"),
+                "sources": (ent.get("sources") or [])[:4],
+                "fusion_score": ent.get("fusion_score"),
+            })
+
     slim: dict[str, Any] = {
         "query": raw_full.get("query"),
+        "feature": raw_full.get("feature"),
         "tools": [
             {
                 "tool": tr.get("tool"),
@@ -409,6 +420,7 @@ def build_copilot_llm_context(raw_full: dict[str, Any], *, max_chars: int = 3500
             for tr in (raw_full.get("tool_results") or [])
             if isinstance(tr, dict)
         ],
+        "entities": entities,
         "fusion_score": fusion.get("fusion_score") if isinstance(fusion, dict) else None,
         "correlation_clusters": (correlation.get("clusters") or [])[:2] if isinstance(correlation, dict) else [],
         "samurai_social_intel": evidence.get("samurai_social_intel"),
@@ -437,8 +449,160 @@ def build_copilot_llm_context(raw_full: dict[str, Any], *, max_chars: int = 3500
                 "hit_count": len(data) if isinstance(data, list) else 0,
                 "hits": hits,
             }
+    return slim
 
+
+def build_copilot_llm_context(raw_full: dict[str, Any], *, max_chars: int = 3500) -> str:
+    """
+    Slim context for fast copilot LLM turns — skips huge identity blobs and caps scanner rows.
+    """
+    slim = _slim_investigation_for_llm(raw_full)
     return _fit_llm_context(slim, max_chars=max_chars)
+
+
+def load_case_investigation_payloads(
+    case_id: str,
+    *,
+    current_investigation_id: str = "",
+    current_result: dict[str, Any] | None = None,
+    current_query: str = "",
+) -> list[dict[str, Any]]:
+    """Load every investigation linked to a case (newest first), with result payloads."""
+    from services.copilot_store import load_copilot_pack
+    from services.enterprise.cases import list_case_investigations
+    from services.investigation_runner import get_investigation
+
+    links = list_case_investigations(case_id)
+    payloads: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for link in links:
+        inv_id = str(link.get("investigation_id") or "")
+        if not inv_id or inv_id in seen:
+            continue
+        seen.add(inv_id)
+
+        result: dict[str, Any] = {}
+        query = str(link.get("query") or "")
+        query_type = ""
+        status = "unknown"
+
+        if inv_id == current_investigation_id and current_result:
+            result = current_result if isinstance(current_result, dict) else {}
+            query = current_query or query or str(result.get("query") or "")
+            status = "complete" if result else status
+        else:
+            inv = get_investigation(inv_id) or {}
+            result = inv.get("result") if isinstance(inv.get("result"), dict) else {}
+            query = query or str(inv.get("query") or result.get("query") or "")
+            query_type = str(inv.get("query_type") or result.get("feature") or "")
+            status = str(inv.get("status") or ("complete" if result else "unknown"))
+
+        if not result:
+            pack = load_copilot_pack(inv_id)
+            result = get_raw_full(pack) if pack else {}
+            if not query and pack:
+                query = str(pack.get("query") or "")
+
+        if not result and not query:
+            continue
+
+        payloads.append({
+            "investigation_id": inv_id,
+            "query": query,
+            "query_type": query_type or str(result.get("feature") or ""),
+            "created_at": str(link.get("created_at") or ""),
+            "status": status,
+            "is_current": inv_id == current_investigation_id,
+            "result": result,
+        })
+
+    # Include the live investigation even if not yet linked (edge race).
+    if current_investigation_id and current_investigation_id not in seen and current_result:
+        payloads.insert(0, {
+            "investigation_id": current_investigation_id,
+            "query": current_query or str(current_result.get("query") or ""),
+            "query_type": str(current_result.get("feature") or ""),
+            "created_at": "",
+            "status": "complete",
+            "is_current": True,
+            "result": current_result,
+        })
+
+    return payloads
+
+
+def build_case_copilot_llm_context(
+    case_id: str,
+    *,
+    current_investigation_id: str = "",
+    current_result: dict[str, Any] | None = None,
+    current_query: str = "",
+    max_chars: int = 8000,
+    max_investigations: int = 12,
+) -> str:
+    """
+    Case-wide LLM context: every investigation under the case, not only the active one.
+    Current investigation gets a larger share of the character budget.
+    """
+    from services.enterprise.cases import get_case
+
+    case = get_case(case_id) or {}
+    payloads = load_case_investigation_payloads(
+        case_id,
+        current_investigation_id=current_investigation_id,
+        current_result=current_result,
+        current_query=current_query,
+    )[:max_investigations]
+
+    if not payloads and current_result:
+        return build_copilot_llm_context(current_result, max_chars=max_chars)
+
+    header_budget = min(400, max_chars // 8)
+    remaining = max(1200, max_chars - header_budget)
+    n = max(1, len(payloads))
+    # Current inv gets ~2x share; others share the rest.
+    current_share = remaining // 2 if any(p.get("is_current") for p in payloads) and n > 1 else remaining // n
+    other_share = max(400, (remaining - current_share) // max(1, n - (1 if any(p.get("is_current") for p in payloads) else 0)))
+
+    investigations: list[dict[str, Any]] = []
+    for item in payloads:
+        budget = current_share if item.get("is_current") else other_share
+        result = item.get("result") if isinstance(item.get("result"), dict) else {}
+        if result:
+            slim_json = build_copilot_llm_context(result, max_chars=budget)
+            try:
+                data = json.loads(slim_json)
+            except Exception:
+                data = {"raw": slim_json[:budget]}
+        else:
+            data = {"note": "No stored result payload yet", "query": item.get("query")}
+
+        investigations.append({
+            "investigation_id": item.get("investigation_id"),
+            "query": item.get("query"),
+            "query_type": item.get("query_type"),
+            "created_at": item.get("created_at"),
+            "status": item.get("status"),
+            "is_current": bool(item.get("is_current")),
+            "data": data,
+        })
+
+    case_payload = {
+        "scope": "case",
+        "case_id": case_id,
+        "case_number": case.get("case_number") or "",
+        "title": case.get("title") or "",
+        "status": case.get("status") or "",
+        "investigation_count": len(investigations),
+        "investigations": investigations,
+        "instruction": (
+            "This is CASE-WIDE intelligence. Answer using ALL investigations below "
+            "(usernames, emails, phones, images, domains). Cite which investigation/query "
+            "a finding comes from when relevant."
+        ),
+    }
+    return _fit_llm_context(case_payload, max_chars=max_chars)
 
 
 def _fit_llm_context(slim: dict[str, Any], *, max_chars: int) -> str:

@@ -154,13 +154,17 @@ async def investigate_ws(websocket: WebSocket):
             details={"query": query, "case_id": case_id, "via": "websocket"},
         )
 
-        if not disconnected:
+        # Always try to deliver the final payload — disk already has status=complete
+        # for poll recovery if the socket is gone.
+        try:
             await websocket.send_json({
                 "phase": "finished",
                 "investigation_id": investigation_id,
                 "status": "complete",
                 "result": _dump_result(result),
             })
+        except Exception:
+            pass
     except InvestigationCancelledError:
         if not disconnected:
             await websocket.send_json({

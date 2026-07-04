@@ -69,11 +69,14 @@ class ImageIntelligenceEngine:
         similarity_signature: str | None = None
 
         completed_modules: set[str] = set()
+        attempted_modules: set[str] = set()
         for tr in tool_results or []:
+            mod = TOOL_TO_MODULE.get(tr.tool)
+            if not mod:
+                continue
+            attempted_modules.add(mod)
             if tr.success:
-                mod = TOOL_TO_MODULE.get(tr.tool)
-                if mod:
-                    completed_modules.add(mod)
+                completed_modules.add(mod)
 
         async def _run_face() -> None:
             nonlocal face_count
@@ -117,21 +120,20 @@ class ImageIntelligenceEngine:
             except Exception as exc:
                 modules_failed.append(f"fingerprint:{type(exc).__name__}")
 
+        # When adapters already attempted a module, do not re-run heavy ML
+        # (timeouts leave the shared executor busy and look like a hang).
         async with asyncio.TaskGroup() as tg:
-            if fast:
-                if "fingerprint" not in completed_modules:
-                    tg.create_task(_run_fingerprint())
-            else:
-                if "face" not in completed_modules:
+            if "fingerprint" not in completed_modules and "fingerprint" not in attempted_modules:
+                tg.create_task(_run_fingerprint())
+            if not fast:
+                if "face" not in completed_modules and "face" not in attempted_modules:
                     tg.create_task(_run_face())
-                if "metadata" not in completed_modules:
+                if "metadata" not in completed_modules and "metadata" not in attempted_modules:
                     tg.create_task(_run_metadata())
-                if "ocr" not in completed_modules:
+                if "ocr" not in completed_modules and "ocr" not in attempted_modules:
                     tg.create_task(_run_ocr())
-                if "object" not in completed_modules:
+                if "object" not in completed_modules and "object" not in attempted_modules:
                     tg.create_task(_run_objects())
-                if "fingerprint" not in completed_modules:
-                    tg.create_task(_run_fingerprint())
 
         findings.extend(self._findings_from_tool_results(tool_results or [], path, url))
 
