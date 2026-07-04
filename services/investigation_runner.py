@@ -1219,6 +1219,7 @@ class InvestigationRunner:
             from services.brief_indexer import on_tool_completed
 
             on_tool_completed(safe_tr, query=query)
+
             # Samurai: ship intel on the tool-done event itself so the UI never depends
             # on a later collection_partial / complete message (WS drops, reload, etc.).
             early_evidence = None

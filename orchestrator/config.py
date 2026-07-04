@@ -67,11 +67,7 @@ DEFAULT_TIMEOUTS: dict[str, float] = {
     "email_intel": 60.0,
     "domain_intel": 60.0,
     "infra_intel": 45.0,
-<<<<<<< HEAD
     "image_intel": 120.0,
-=======
-    "image_intel": 90.0,
->>>>>>> 7cae6c10f6b044fe8cfc4e357a39aff4bf3114ed
 }
 
 # Per-tool budgets — image ML tools stay under the shared executor wall.
