@@ -210,6 +210,16 @@ def process_search_hit(
             seed_query=seed_query,
         ):
             return None
+    elif query_type == "email":
+        from services.google_dorking.filters import email_dork_hit_displayable
+
+        if not email_dork_hit_displayable(
+            url=url,
+            title=title,
+            snippet=snippet,
+            seed_query=seed_query,
+        ):
+            return None
     serp = build_serp_record(
         title=title,
         url=url,

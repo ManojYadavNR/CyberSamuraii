@@ -1,4 +1,4 @@
-"""Qwen 2.5 3B via Ollama — streaming copilot with focused investigation context."""
+"""Investigation copilot LLM — Ollama (Qwen), xAI Grok, or Google Gemini."""
 
 from __future__ import annotations
 
@@ -12,13 +12,48 @@ from typing import Any
 import httpx
 
 OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+XAI_BASE = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").rstrip("/")
+GEMINI_BASE = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
 COPILOT_TIMEOUT = float(os.getenv("COPILOT_TIMEOUT_SEC", "90"))
+XAI_TIMEOUT = float(os.getenv("XAI_TIMEOUT_SEC", "120"))
+GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT_SEC", "120"))
 
 _semaphore: asyncio.Semaphore | None = None
 
 
+def copilot_provider() -> str:
+    raw = os.getenv("COPILOT_PROVIDER", "ollama").strip().lower()
+    if raw in ("xai", "grok"):
+        return "xai"
+    if raw in ("gemini", "google"):
+        return "gemini"
+    return "ollama"
+
+
+def copilot_engine_name() -> str:
+    provider = copilot_provider()
+    if provider == "xai":
+        return "grok"
+    if provider == "gemini":
+        return "gemini"
+    return "qwen"
+
+
 def copilot_model() -> str:
+    provider = copilot_provider()
+    if provider == "xai":
+        return os.getenv("XAI_MODEL", "grok-4.3")
+    if provider == "gemini":
+        return os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     return os.getenv("COPILOT_MODEL", "qwen2.5:3b")
+
+
+def gemini_api_key() -> str:
+    return (
+        os.getenv("GEMINI_API_KEY", "").strip()
+        or os.getenv("GOOGLE_GEMINI_API_KEY", "").strip()
+        or os.getenv("GOOGLE_API_KEY", "").strip()
+    )
 
 
 def chunk_max_chars() -> int:
@@ -111,24 +146,34 @@ async def release_heavy_ollama_models() -> None:
     await asyncio.to_thread(_stop)
 
 
-SYSTEM_PROMPT = """You are an OSINT investigation copilot. Analyze the investigation data and answer naturally.
+SYSTEM_PROMPT = """You are an OSINT investigation copilot with FULL CASE ACCESS when scope is "case".
+
+The JSON includes **every investigation** linked to the case in the `investigations` array.
+Each investigation has: investigation_id, query, tools_run, verified_findings, research_intel.
+
+DATA LAYERS:
+1. **verified_findings** — cross-checked accounts (Samurai live scrape, corroborated tools).
+2. **research_intel** per investigation — google_dork_hits, google_search_intel (colleges, hackathons, GitHub, employment), Samurai reels/captions/links.
+
+HOW TO ANSWER:
+- Use ALL investigations — not only the latest run. Same target may appear in multiple runs; merge and dedupe in your answer.
+- Cite which **query** and **investigation_id** when findings differ between runs.
+- Label: "Verified:" vs "Research/dorking:" vs "From reel caption:".
+- For colleges, GitHub, hackathons, web hits — use google_dork_hits and google_search_intel from any investigation.
+- Never invent data outside the JSON. Scanner-only enumeration was excluded from verified but dork hits are in research_intel.
 
 RULES:
-- Use ONLY the investigation / case data below. Never invent accounts or URLs.
-- When scope is "case", the data includes ALL investigations under that case (username, email, phone, image, domain, etc.). Use every investigation, not only the current one.
-- When citing findings, mention which investigation query they came from if multiple exist.
-- Answer the analyst's question directly — short paragraph or a few bullets.
-- No fixed headers (KEY FINDINGS, DETAILS, NOT IN DATA).
-- Only real https:// URLs from data — never {username} templates.
-- If something was not found (e.g. LinkedIn), say so clearly in the analyst's language.
+- Short, detailed answers with URLs, titles, snippets from the data.
+- Only real https:// URLs from the JSON.
 """
 
 MAP_SYSTEM_PROMPT = """You extract facts from ONE slice of raw OSINT investigation data.
 Rules:
-- List EVERY account, URL, name, college, hackathon, post, bio, error, and count you find.
-- Do not summarize away details — include specific handles, domains, and titles.
-- If the chunk is empty or failed, state that explicitly.
-- Output compact bullet points grouped by type. No speculation.
+- List accounts, URLs, names, posts, bios, errors, and counts you find.
+- Mark each item's trust level: confirmed, corroborated (2+ tools), single-source lead, or tool error.
+- Note tool failures, warnings, and contradictions explicitly.
+- Do not treat scanner hits as verified identity.
+- Output compact bullet points grouped by trust level. No speculation beyond what the data supports.
 """
 
 REDUCE_SYSTEM_PROMPT = SYSTEM_PROMPT + """
@@ -144,9 +189,14 @@ _PREWARM_COOLDOWN_SEC = 1800.0
 
 
 async def prewarm_copilot_model(*, force: bool = False) -> bool:
-    """Load copilot model into memory — call when copilot panel opens."""
+    """Load copilot model into memory — Ollama only."""
     global _prewarm_last_at
-    if not _enabled():
+    provider = copilot_provider()
+    if not _enabled() or provider in ("xai", "gemini"):
+        if provider == "xai":
+            return xai_configured()
+        if provider == "gemini":
+            return gemini_configured()
         return False
     if not force and time.time() - _prewarm_last_at < _PREWARM_COOLDOWN_SEC:
         return False
@@ -170,7 +220,7 @@ async def prewarm_copilot_model(*, force: bool = False) -> bool:
 
 
 async def ollama_available() -> bool:
-    if not _enabled():
+    if not _enabled() or copilot_provider() != "ollama":
         return False
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -183,6 +233,35 @@ async def ollama_available() -> bool:
             return any(n == target or n.startswith(f"{target}:") or target in n for n in names)
     except Exception:
         return False
+
+
+def xai_configured() -> bool:
+    return bool(os.getenv("XAI_API_KEY", "").strip())
+
+
+async def xai_available() -> bool:
+    if not _enabled() or copilot_provider() != "xai":
+        return False
+    return xai_configured()
+
+
+def gemini_configured() -> bool:
+    return bool(gemini_api_key())
+
+
+async def gemini_available() -> bool:
+    if not _enabled() or copilot_provider() != "gemini":
+        return False
+    return gemini_configured()
+
+
+async def llm_available() -> bool:
+    provider = copilot_provider()
+    if provider == "xai":
+        return await xai_available()
+    if provider == "gemini":
+        return await gemini_available()
+    return await ollama_available()
 
 
 def build_chat_messages(
@@ -198,13 +277,244 @@ def build_chat_messages(
     system = (
         SYSTEM_PROMPT
         + f"\n\n{lang}"
-        + "\n\n--- INVESTIGATION / CASE DATA ---\n"
+        + "\n\n--- VERIFIED + RESEARCH INTELLIGENCE ---\n"
         + context_json[:limit]
     )
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user_message},
     ]
+
+
+async def _chat_messages_xai(
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
+) -> str:
+    api_key = os.getenv("XAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("XAI_API_KEY is not configured. Add it to .env and restart the backend.")
+
+    payload = {
+        "model": copilot_model(),
+        "messages": messages,
+        "stream": False,
+        "temperature": float(os.getenv("COPILOT_TEMPERATURE", "0.1")),
+        "max_tokens": max_tokens or int(os.getenv("COPILOT_MAX_TOKENS", "280")),
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    async with _get_semaphore():
+        timeout = httpx.Timeout(15.0, read=XAI_TIMEOUT)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(f"{XAI_BASE}/chat/completions", json=payload, headers=headers)
+            if response.status_code >= 400:
+                detail = response.text[:400]
+                try:
+                    err = response.json().get("error") or response.json().get("message")
+                    if err:
+                        detail = str(err)
+                except Exception:
+                    pass
+                raise RuntimeError(f"xAI Grok error ({response.status_code}): {detail}")
+            data = response.json()
+            choices = data.get("choices") or []
+            if not choices:
+                raise RuntimeError("Empty response from xAI Grok")
+            text = str((choices[0].get("message") or {}).get("content") or "").strip()
+            if not text:
+                raise RuntimeError("Empty response from xAI Grok")
+            return text
+
+
+async def _stream_chat_messages_xai(messages: list[dict[str, str]]) -> AsyncIterator[str]:
+    api_key = os.getenv("XAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("XAI_API_KEY is not configured. Add it to .env and restart the backend.")
+
+    payload = {
+        "model": copilot_model(),
+        "messages": messages,
+        "stream": True,
+        "temperature": float(os.getenv("COPILOT_TEMPERATURE", "0.1")),
+        "max_tokens": int(os.getenv("COPILOT_MAX_TOKENS", "280")),
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    async with _get_semaphore():
+        timeout = httpx.Timeout(15.0, read=XAI_TIMEOUT)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                f"{XAI_BASE}/chat/completions",
+                json=payload,
+                headers=headers,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    chunk = line[5:].strip()
+                    if not chunk or chunk == "[DONE]":
+                        if chunk == "[DONE]":
+                            break
+                        continue
+                    try:
+                        data = json.loads(chunk)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = data.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    token = str(delta.get("content") or "")
+                    if token:
+                        yield token
+
+
+def _messages_to_gemini(messages: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
+    system_parts: list[str] = []
+    contents: list[dict[str, Any]] = []
+    for msg in messages:
+        role = str(msg.get("role") or "user")
+        text = str(msg.get("content") or "").strip()
+        if not text:
+            continue
+        if role == "system":
+            system_parts.append(text)
+        elif role == "assistant":
+            contents.append({"role": "model", "parts": [{"text": text}]})
+        else:
+            contents.append({"role": "user", "parts": [{"text": text}]})
+    if not contents:
+        contents.append({"role": "user", "parts": [{"text": "Hello"}]})
+    return "\n\n".join(system_parts), contents
+
+
+def _gemini_generation_config(*, max_tokens: int | None = None) -> dict[str, Any]:
+    return {
+        "temperature": float(os.getenv("COPILOT_TEMPERATURE", "0.1")),
+        "maxOutputTokens": max_tokens or int(os.getenv("COPILOT_MAX_TOKENS", "512")),
+    }
+
+
+def _gemini_error_detail(response: httpx.Response) -> str:
+    detail = response.text[:400]
+    try:
+        err = response.json().get("error") or {}
+        message = err.get("message") or err
+        if message:
+            return str(message)
+    except Exception:
+        pass
+    return detail
+
+
+def _extract_gemini_text(data: dict[str, Any]) -> str:
+    candidates = data.get("candidates") or []
+    if not candidates:
+        return ""
+    parts = (candidates[0].get("content") or {}).get("parts") or []
+    return "".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
+
+
+def _gemini_text_from_response(data: dict[str, Any]) -> str:
+    text = _extract_gemini_text(data)
+    if not text:
+        raise RuntimeError("Empty response from Gemini")
+    return text
+
+
+async def _chat_messages_gemini(
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
+) -> str:
+    api_key = gemini_api_key()
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not configured. Add it to .env and restart the backend."
+        )
+
+    system_instruction, contents = _messages_to_gemini(messages)
+    model = copilot_model()
+    url = f"{GEMINI_BASE}/models/{model}:generateContent"
+    payload: dict[str, Any] = {
+        "contents": contents,
+        "generationConfig": _gemini_generation_config(max_tokens=max_tokens),
+    }
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
+    async with _get_semaphore():
+        timeout = httpx.Timeout(15.0, read=GEMINI_TIMEOUT)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, params={"key": api_key}, json=payload)
+            if response.status_code >= 400:
+                raise RuntimeError(
+                    f"Gemini error ({response.status_code}): {_gemini_error_detail(response)}"
+                )
+            return _gemini_text_from_response(response.json())
+
+
+async def _stream_chat_messages_gemini(messages: list[dict[str, str]]) -> AsyncIterator[str]:
+    api_key = gemini_api_key()
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not configured. Add it to .env and restart the backend."
+        )
+
+    system_instruction, contents = _messages_to_gemini(messages)
+    model = copilot_model()
+    url = f"{GEMINI_BASE}/models/{model}:streamGenerateContent"
+    payload: dict[str, Any] = {
+        "contents": contents,
+        "generationConfig": _gemini_generation_config(),
+    }
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
+    async with _get_semaphore():
+        timeout = httpx.Timeout(15.0, read=GEMINI_TIMEOUT)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                url,
+                params={"key": api_key, "alt": "sse"},
+                json=payload,
+            ) as response:
+                if response.status_code >= 400:
+                    body = await response.aread()
+                    detail = body.decode("utf-8", errors="replace")[:400]
+                    try:
+                        err = json.loads(body).get("error") or {}
+                        detail = str(err.get("message") or detail)
+                    except Exception:
+                        pass
+                    raise RuntimeError(f"Gemini error ({response.status_code}): {detail}")
+
+                emitted = ""
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    chunk = line[5:].strip()
+                    if not chunk or chunk == "[DONE]":
+                        continue
+                    try:
+                        data = json.loads(chunk)
+                    except json.JSONDecodeError:
+                        continue
+                    text = _extract_gemini_text(data)
+                    if not text:
+                        continue
+                    if text.startswith(emitted):
+                        delta = text[len(emitted):]
+                        emitted = text
+                    else:
+                        delta = text
+                        emitted += text
+                    if delta:
+                        yield delta
 
 
 async def _chat_messages(
@@ -214,6 +524,11 @@ async def _chat_messages(
 ) -> str:
     if not _enabled():
         raise RuntimeError("Copilot LLM disabled (COPILOT_ENABLED=false)")
+
+    if copilot_provider() == "xai":
+        return await _chat_messages_xai(messages, max_tokens=max_tokens)
+    if copilot_provider() == "gemini":
+        return await _chat_messages_gemini(messages, max_tokens=max_tokens)
 
     payload = {
         "model": copilot_model(),
@@ -250,6 +565,16 @@ async def stream_chat_with_qwen(
         context_json=context_json,
         chat_history=chat_history,
     )
+
+    if copilot_provider() == "xai":
+        async for token in _stream_chat_messages_xai(messages):
+            yield token
+        return
+    if copilot_provider() == "gemini":
+        async for token in _stream_chat_messages_gemini(messages):
+            yield token
+        return
+
     payload = {
         "model": copilot_model(),
         "messages": messages,

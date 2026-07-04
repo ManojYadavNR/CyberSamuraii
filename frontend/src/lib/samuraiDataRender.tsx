@@ -200,11 +200,16 @@ export function mediaPreviewUrlCandidates(
 
 export function videoSourceFromPost(post: Record<string, unknown>): string | undefined {
   const video = (post.video as Record<string, unknown> | undefined) ?? {};
+  const fromMedia = (post.media as Record<string, unknown>[] | undefined)?.find(
+    (item) => item.kind === 'video' || isLikelyVideoUrl(String(item.url || item.live_url || '')),
+  );
   return pickMediaUrl(
     video.video_live_url as string,
     video.video_url as string,
     post.video_live_url as string,
     post.video_url as string,
+    fromMedia?.url as string,
+    fromMedia?.live_url as string,
   );
 }
 

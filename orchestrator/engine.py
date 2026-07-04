@@ -133,6 +133,10 @@ class ToolOrchestratorEngine:
         async def _run_one(tool: str) -> ToolResult:
             # Samurai needs the full seed (name + username) for Facebook name-directory lookup.
             run_query = query if tool == "samurai" else scan_query
+            if feature == "email_intel" and tool in ("maigret", "blackbird", "sherlock"):
+                from services.email_intel import email_local_part
+
+                run_query = email_local_part(query)
             return await self._run_tool_safe(tool, run_query, default_timeout, hop=hop)
 
         tool_results, parallel_meta = await execute_tools_parallel(

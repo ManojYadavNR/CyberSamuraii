@@ -7,6 +7,7 @@ Techniques used:
   3. DuckDuckGo HTML fallback when ddgs library fails
   4. India-focused people-search sites (Truecaller, Sync.me, Justdial, etc.)
   5. WhatsApp / Telegram direct checks
+  6. UPI / payment app discovery (PhonePe, Paytm, Google Pay, PayPal) — see payment_lookup.py
 """
 
 from __future__ import annotations
@@ -453,6 +454,11 @@ def lookup_social_accounts(number_info: dict, *, fast_only: bool = False) -> dic
                 key = futures[future]
                 platforms[key] = future.result()
 
+    # UPI / payment apps (PhonePe, Paytm, GPay, PayPal web mentions)
+    from services.phone_intelligence.payment_lookup import lookup_payment_intel
+
+    payment_intel = lookup_payment_intel(number_info)
+
     # Collect all confirmed matches
     confirmed: list[dict] = list(registered.get("linked_accounts", []))
     for pl in profile_resolution.get("profile_links", []):
@@ -492,6 +498,32 @@ def lookup_social_accounts(number_info: dict, *, fast_only: bool = False) -> dic
                     "evidence": "Phone number found in public web result",
                 })
 
+    for vpa in payment_intel.get("verified_vpas") or []:
+        confirmed.append({
+            "platform": vpa.get("app") or "upi",
+            "username": vpa.get("vpa"),
+            "url": vpa.get("deep_link"),
+            "customer_name": vpa.get("customer_name"),
+            "confidence": "high",
+            "evidence": f"Verified UPI on {vpa.get('psp_label', 'UPI')}",
+        })
+    for hit in payment_intel.get("paypal_mentions") or []:
+        possible.append({
+            "platform": "paypal",
+            "url": hit.get("url"),
+            "title": hit.get("title"),
+            "snippet": hit.get("snippet"),
+            "confidence": "medium",
+            "evidence": "PayPal mention in public web search",
+        })
+    if payment_intel.get("primary_name"):
+        possible.append({
+            "platform": "upi",
+            "username": payment_intel.get("primary_name"),
+            "confidence": "high",
+            "evidence": "NPCI-registered name from verified UPI ID(s)",
+        })
+
     linked = [c for c in confirmed if c.get("confidence") == "high"]
     possible = [c for c in confirmed if c.get("confidence") not in ("high",)]
 
@@ -504,7 +536,11 @@ def lookup_social_accounts(number_info: dict, *, fast_only: bool = False) -> dic
             "confirmed_links": len(linked),
             "possible_links": len(possible),
             "whatsapp_registered": platforms.get("whatsapp", {}).get("status") == "likely_registered",
+            "verified_upi_count": (payment_intel.get("summary") or {}).get("verified_upi_count", 0),
+            "upi_names_found": (payment_intel.get("summary") or {}).get("names_found", 0),
+            "paypal_hits": (payment_intel.get("summary") or {}).get("paypal_hits", 0),
         },
+        "payment_intel": payment_intel,
         "registered_accounts": registered,
         "profile_links": profile_resolution["profile_links"],
         "profile_urls": profile_resolution["urls"],

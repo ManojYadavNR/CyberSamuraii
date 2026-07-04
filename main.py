@@ -17,6 +17,7 @@ from api.notifications_routes import router as notifications_router
 from api.dashboard_routes import router as dashboard_router
 from api.enterprise_routes import router as enterprise_router
 from api.routes import router as intel_router
+from api.samurai_routes import router as samurai_router
 from api.tools_status import router as tools_router
 from api.ws import router as ws_router
 from tools.registry import registry
@@ -93,6 +94,7 @@ app.include_router(notifications_router)
 app.include_router(enterprise_router)
 app.include_router(tools_router)
 app.include_router(intel_router)
+app.include_router(samurai_router)
 app.include_router(dashboard_router)
 app.include_router(ws_router)
 

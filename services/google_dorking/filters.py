@@ -104,6 +104,29 @@ PHONE_JUNK_HOSTS = frozenset({
     "stripe.com",
     "ecfmg.org",
     "sixflags.com",
+    "truecaller.com",
+    "todalocas.org",
+})
+
+EMAIL_JUNK_HOSTS = frozenset({
+    "accounts.google.com",
+    "mail.google.com",
+    "gmail.com",
+    "google.com",
+    "youtube.com",
+    "youtu.be",
+    "wikihow.com",
+    "support.google.com",
+    "ussearch.com",
+    "ok.ru",
+    "analytics.twitter.com",
+    "twitter.com",
+    "x.com",
+    "facebook.com",
+    "secure.facebook.com",
+    "instagram.com",
+    "linkedin.com",
+    "github.com",
 })
 
 
@@ -133,6 +156,52 @@ def phone_dork_hit_displayable(
     tail = seed_digits[-10:] if len(seed_digits) >= 10 else seed_digits
     blob_digits = re.sub(r"\D", "", f"{url} {title} {snippet}")
     return tail in blob_digits
+
+
+def email_dork_hit_displayable(
+    *,
+    url: str,
+    title: str = "",
+    snippet: str = "",
+    seed_query: str,
+) -> bool:
+    """Email dork hits must cite the address or local-part handle — blocks generic Gmail/X noise."""
+    from urllib.parse import urlparse
+
+    if is_junk_dork_url(url):
+        return False
+    email = seed_query.strip().lower()
+    if "@" not in email:
+        return False
+
+    local, _, domain = email.partition("@")
+    host = urlparse(url if "://" in url else f"https://{url}").netloc.lower().replace("www.", "")
+    path = urlparse(url if "://" in url else f"https://{url}").path.lower()
+
+    if host in EMAIL_JUNK_HOSTS:
+        # Allow profile URLs that embed the local handle (e.g. figma.com/@mahinayk483).
+        if not (len(local) >= 5 and local in path):
+            return False
+
+    blob = f"{url} {title} {snippet}".lower()
+    if email in blob:
+        return True
+
+    if len(local) < 5:
+        return False
+
+    if local not in blob and local not in path:
+        return False
+
+    # Reject people-search pages that match the mail provider name instead of the user.
+    generic_local_hits = {domain.split(".")[0], "gmail", "gmailcom", "email", "mail"}
+    if local in generic_local_hits and email not in blob:
+        return False
+    if any(token in blob for token in ("people-search", "found - phone", "profiles/", "our records show")):
+        if email not in blob:
+            return False
+
+    return True
 
 
 def sanitize_org_label(value: str) -> str:

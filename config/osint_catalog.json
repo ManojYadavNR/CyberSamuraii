@@ -25,7 +25,8 @@
     {
       "tool_name": "maigret",
       "supported_inputs": [
-        "username"
+        "username",
+        "email"
       ],
       "entity_types": [
         "account"
@@ -130,7 +131,8 @@
     {
       "tool_name": "blackbird",
       "supported_inputs": [
-        "username"
+        "username",
+        "email"
       ],
       "entity_types": [
         "account"
@@ -142,6 +144,7 @@
       "priority": 18,
       "parallel_group": "username_scan",
       "enabled": true,
+      "feature": "email_intel",
       "osint_category": "Username",
       "description": "Blackbird OSINT username search",
       "adapter_key": "blackbird"

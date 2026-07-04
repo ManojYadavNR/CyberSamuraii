@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { copilotAsk, fetchCopilotStatus, prewarmCopilot } from '../api/client';
+import { copilotAsk, fetchCopilotStatus, fetchCopilotSummary, prewarmCopilot } from '../api/client';
+import { fetchCaseDetail } from '../api/enterprise';
 import { useAuthStore } from '../store/authStore';
 import { useInvestigationStore } from '../store/investigationStore';
 import { useUiStore } from '../store/uiStore';
@@ -8,9 +9,13 @@ import { CopilotMessage } from './CopilotMessage';
 export function CopilotChat() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [ollamaOnline, setOllamaOnline] = useState<boolean | null>(null);
-  const [modelName, setModelName] = useState('qwen2.5:3b');
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [llmOnline, setLlmOnline] = useState<boolean | null>(null);
+  const [modelName, setModelName] = useState('gemini-2.5-flash-lite');
+  const [provider, setProvider] = useState<string>('gemini');
+  const [scopeLabel, setScopeLabel] = useState<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const summaryScopeRef = useRef('');
   const investigationId = useInvestigationStore((s) => s.investigationId);
   const result = useInvestigationStore((s) => s.result);
   const query = useInvestigationStore((s) => s.query);
@@ -18,24 +23,48 @@ export function CopilotChat() {
   const messages = useInvestigationStore((s) => s.chatMessages);
   const addChatMessage = useInvestigationStore((s) => s.addChatMessage);
   const updateChatMessage = useInvestigationStore((s) => s.updateChatMessage);
+  const clearChatMessages = useInvestigationStore((s) => s.clearChatMessages);
   const selectedCaseId = useUiStore((s) => s.selectedCaseId);
   const activeCaseId = useAuthStore((s) => s.activeCaseId);
   const caseMeta = useUiStore((s) => s.selectedCaseMeta);
-  const caseId = selectedCaseId || activeCaseId || undefined;
+  const setSelectedCase = useUiStore((s) => s.setSelectedCase);
+  /** Active case wins — matches SearchBar and where new investigations are linked. */
+  const caseId = activeCaseId || selectedCaseId || undefined;
+
+  const scopeKey = `${caseId || ''}:${investigationId || ''}:${status}`;
+
+  useEffect(() => {
+    if (!caseId) {
+      setScopeLabel('');
+      return;
+    }
+    if (caseMeta?.case_id === caseId && caseMeta.case_number) {
+      setScopeLabel(caseMeta.case_number);
+      return;
+    }
+    fetchCaseDetail(caseId)
+      .then((d) => {
+        setScopeLabel(d.case_number);
+        setSelectedCase(caseId, { case_number: d.case_number, title: d.title });
+      })
+      .catch(() => setScopeLabel(caseId.slice(0, 8)));
+  }, [caseId, caseMeta?.case_id, caseMeta?.case_number, setSelectedCase]);
 
   useEffect(() => {
     const load = () => {
       fetchCopilotStatus()
         .then((s) => {
-          setOllamaOnline(s.ollama_online);
-          setModelName(s.model || 'qwen2.5:3b');
+          setLlmOnline(s.ollama_online);
+          setModelName(s.model || 'gemini-2.5-flash-lite');
+          setProvider(s.provider || 'ollama');
         })
-        .catch(() => setOllamaOnline(false));
+        .catch(() => setLlmOnline(false));
     };
     load();
     prewarmCopilot().then((s) => {
-      setOllamaOnline(s.ollama_online);
-      setModelName(s.model || 'qwen2.5:3b');
+      setLlmOnline(s.ollama_online);
+      setModelName(s.model || 'grok-4.3');
+      setProvider(s.provider || 'ollama');
     }).catch(() => {});
     const id = window.setInterval(load, 30000);
     return () => window.clearInterval(id);
@@ -43,10 +72,71 @@ export function CopilotChat() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, loading, summaryLoading]);
+
+  useEffect(() => {
+    if (summaryScopeRef.current === scopeKey) return;
+    if (!caseId) {
+      if (status === 'complete' && investigationId) {
+        summaryScopeRef.current = scopeKey;
+        clearChatMessages();
+        setSummaryLoading(true);
+        fetchCopilotSummary({ investigation_id: investigationId })
+          .then((summary) => {
+            addChatMessage({
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: summary.summary_markdown || 'No data yet.',
+              timestamp: new Date().toISOString(),
+            });
+          })
+          .catch(() => {})
+          .finally(() => setSummaryLoading(false));
+      }
+      return;
+    }
+
+    summaryScopeRef.current = scopeKey;
+    clearChatMessages();
+    setSummaryLoading(true);
+
+    fetchCopilotSummary({
+      case_id: caseId,
+      investigation_id: investigationId ?? undefined,
+    })
+      .then((summary) => {
+        if (summary.case_number) setScopeLabel(summary.case_number);
+        addChatMessage({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: summary.summary_markdown || 'No verified findings yet.',
+          timestamp: new Date().toISOString(),
+        });
+      })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : 'Could not load verified summary';
+        addChatMessage({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: `**Summary unavailable**\n\n${msg}\n\nSelect the case you are working on in the top bar, then reopen the copilot.`,
+          timestamp: new Date().toISOString(),
+        });
+      })
+      .finally(() => setSummaryLoading(false));
+  }, [scopeKey, caseId, investigationId, status, clearChatMessages, addChatMessage]);
 
   const send = async (text: string) => {
     if (!text.trim() || loading) return;
+    if (!caseId && status !== 'complete') {
+      addChatMessage({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: 'Select an **active case** in the top bar first — the copilot only uses investigations linked to that case.',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
     addChatMessage({ id: crypto.randomUUID(), role: 'user', content: text, timestamp: new Date().toISOString() });
     setInput('');
     setLoading(true);
@@ -59,9 +149,9 @@ export function CopilotChat() {
       await copilotAsk(
         {
           message: text,
-          investigation_id: investigationId ?? undefined,
+          investigation_id: caseId ? (investigationId ?? undefined) : (investigationId ?? undefined),
           case_id: caseId,
-          context: { result, query, case_id: caseId },
+          context: { result: caseId ? result : result, query, case_id: caseId },
         },
         (event) => {
           if (event.status === 'thinking' && !streamed) {
@@ -86,19 +176,36 @@ export function CopilotChat() {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       updateChatMessage(
         assistantId,
-        `Copilot error: ${msg}\n\nEnsure Ollama is running:\n  ollama serve\n  ollama pull qwen2.5:3b`,
+        `Copilot error: ${msg}\n\n${
+          provider === 'gemini'
+            ? 'Check GEMINI_API_KEY in .env and restart the backend.'
+            : provider === 'xai'
+              ? 'Check XAI_API_KEY in .env and restart the backend.'
+              : 'Ensure Ollama is running:\n  ollama serve\n  ollama pull qwen2.5:3b'
+        }`,
       );
     } finally {
       setLoading(false);
     }
   };
 
+  const engineLabel = provider === 'gemini' ? 'Gemini' : provider === 'xai' ? 'Grok' : 'Ollama';
   const statusLabel =
-    ollamaOnline === null
+    llmOnline === null
       ? 'Connecting…'
-      : ollamaOnline
-        ? `${modelName} · streaming`
-        : 'Ollama offline';
+      : llmOnline
+        ? `${modelName} · ${engineLabel}`
+        : provider === 'gemini'
+          ? 'Gemini offline'
+          : provider === 'xai'
+            ? 'Grok offline'
+            : 'Ollama offline';
+
+  const caseSubtitle = caseId
+    ? scopeLabel
+      ? `Active case · ${scopeLabel} · linked investigations only`
+      : 'Active case · loading…'
+    : 'Select a case to unlock case-wide intel';
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -110,18 +217,14 @@ export function CopilotChat() {
           </div>
           <div>
             <h3 className="text-sm font-semibold tracking-tight text-white">Intelligence Copilot</h3>
-            <p className="text-[10px] text-violet-300/70">
-              {caseId
-                ? `Case-wide · ${caseMeta?.case_number || 'all investigations'}`
-                : 'Investigation assistant'}
-            </p>
+            <p className="text-[10px] text-violet-300/70">{caseSubtitle}</p>
           </div>
         </div>
         <span
           className={`rounded-full px-2.5 py-1 text-[10px] font-medium ring-1 ${
-            ollamaOnline
+            llmOnline
               ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/25'
-              : ollamaOnline === false
+              : llmOnline === false
                 ? 'bg-rose-500/10 text-rose-300 ring-rose-500/25'
                 : 'bg-violet-500/10 text-violet-300 ring-violet-500/25'
           }`}
@@ -131,15 +234,15 @@ export function CopilotChat() {
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto pr-1">
-        {messages.length === 0 && status !== 'complete' && !caseId && (
-          <div className="rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3 text-center">
-            <p className="text-xs text-slate-400">Ask questions here after an investigation completes.</p>
+        {!caseId && !summaryLoading && messages.length === 0 && (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-center">
+            <p className="text-xs text-amber-100/90">Select your active case in the top bar. Copilot will load only that case&apos;s investigations.</p>
           </div>
         )}
-        {messages.length === 0 && caseId && (
+        {summaryLoading && messages.length === 0 && (
           <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 px-4 py-3 text-center">
             <p className="text-xs text-violet-200/90">
-              Copilot can use <strong>every investigation</strong> in this case (username, email, phone, image, and more)—not only the latest run.
+              Loading investigations for {scopeLabel || 'active case'}…
             </p>
           </div>
         )}
@@ -180,9 +283,7 @@ export function CopilotChat() {
       </div>
 
       <p className="mt-3 text-[10px] leading-relaxed text-slate-500">
-        {caseId
-          ? 'Ask across the full case — all linked investigations, accounts, phones, emails, images, and evidence.'
-          : 'Ask anything about this investigation — accounts, Instagram, college, evidence, and more.'}
+        Scoped to your active case only — not other cases. Change case in the top bar to switch intel.
       </p>
 
       <div className="mt-2 flex gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] p-2 backdrop-blur-sm">
@@ -190,7 +291,7 @@ export function CopilotChat() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send(input)}
-          placeholder="Ask an intelligence question…"
+          placeholder={caseId ? 'Ask about this case…' : 'Select a case first…'}
           className="min-w-0 flex-1 rounded-lg border-0 bg-transparent px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:ring-0"
         />
         <button

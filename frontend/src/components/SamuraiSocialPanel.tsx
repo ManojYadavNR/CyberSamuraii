@@ -1,7 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { fetchApifyInstagramComments, fetchIgPostMedia, fetchInstagramTopCommenters, type TopCommenter } from '../api/samurai';
+import { InstagramTimelinePanel } from './InstagramTimelinePanel';
 import { useInvestigationStore } from '../store/investigationStore';
 import { friendlyLinkLabel, resolveMediaUrl, resolveVideoUrl } from '../lib/mediaUrl';
-import { externalVisitUrl, facebookProfileUrl, instagramProfileUrl } from '../lib/socialUrls';
+import {
+  externalVisitUrl,
+  facebookProfileUrl,
+  instagramProfileUrl,
+  instagramPublicPostUrl,
+  instagramPublicProfileUrl,
+} from '../lib/socialUrls';
 import {
   dedupeSamuraiMedia,
   facebookItemVisitUrl,
@@ -9,6 +17,9 @@ import {
   cleanFbDisplayName,
   isCleanFbDisplayName,
   isDisplayableSamuraiMedia,
+  buildIgPostUrl,
+  collectIgPostUrls,
+  mapApifyComments,
   mediaEngagement,
   normalizeComments,
   pickMediaUrl,
@@ -32,6 +43,9 @@ import {
 } from '../lib/samuraiDataRender';
 import { Badge } from './ui/Badge';
 import { EmptyState } from './ui/EmptyState';
+
+const IG_MAX_POSTS = 10;
+const IG_INITIAL_VISIBLE = 6;
 
 function SamuraiSectionHeader({
   title,
@@ -93,6 +107,7 @@ function MediaPreview({
   imageCandidates,
   showExternalLink = true,
   compact = false,
+  clickToPlay = false,
 }: {
   url?: string;
   alt: string;
@@ -102,9 +117,11 @@ function MediaPreview({
   imageCandidates?: string[];
   showExternalLink?: boolean;
   compact?: boolean;
+  clickToPlay?: boolean;
 }) {
   const [failIdx, setFailIdx] = useState(0);
   const [failed, setFailed] = useState(false);
+  const [playing, setPlaying] = useState(false);
 
   const imageSources = useMemo(() => {
     if (isVideo) return [];
@@ -121,15 +138,47 @@ function MediaPreview({
   const videoSrc = resolveVideoUrl(isVideo ? url : undefined);
   const video = isVideo && Boolean(videoSrc);
   const visitHref = openHref ? (externalVisitUrl(openHref) || openHref) : undefined;
+  const poster = imageSrc || resolveMediaUrl(posterUrl);
 
   if (video && videoSrc && !failed) {
+    if (clickToPlay && !playing) {
+      return (
+        <button
+          type="button"
+          onClick={() => setPlaying(true)}
+          className={`group relative w-full overflow-hidden rounded-lg border border-slate-700 bg-black text-left ${
+            compact ? 'aspect-square' : 'aspect-[9/16] max-h-[28rem]'
+          }`}
+        >
+          {poster ? (
+            <img
+              src={poster}
+              alt={alt}
+              className="h-full w-full object-contain"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="flex h-full min-h-[12rem] items-center justify-center bg-slate-950 text-slate-500">
+              Video preview
+            </div>
+          )}
+          <div className="absolute inset-0 flex items-center justify-center bg-black/35 transition group-hover:bg-black/45">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full border border-white/30 bg-black/50 text-2xl text-white shadow-lg">
+              ▶
+            </span>
+          </div>
+        </button>
+      );
+    }
     return (
       <video
         src={videoSrc}
         controls
         playsInline
+        autoPlay={playing}
         preload="metadata"
-        poster={imageSrc}
+        poster={poster}
         className="aspect-[9/16] max-h-[28rem] w-full rounded-lg border border-slate-700 bg-black object-contain"
         onError={() => setFailed(true)}
       />
@@ -192,50 +241,179 @@ function EngagementBar({
   );
 }
 
-function CommentRow({ comment }: { comment: SamuraiComment }) {
+function formatCommentTime(value?: string): string | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function CommentRow({ comment, depth = 0 }: { comment: SamuraiComment; depth?: number }) {
+  const replies = comment.replies ?? [];
+  const username = comment.username?.replace(/^@+/, '');
+  const profileHref = username ? instagramPublicProfileUrl(username) : undefined;
   return (
-    <div className="rounded-lg border border-slate-800/80 bg-slate-950/50 px-3 py-2">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-        {comment.username && <span className="font-semibold text-pink-300">@{comment.username}</span>}
-        {comment.timestamp && <span>{comment.timestamp}</span>}
-        {comment.like_count != null && <span>♥ {formatCount(comment.like_count)}</span>}
+    <div className={depth > 0 ? 'ml-4 border-l-2 border-pink-500/20 pl-3' : ''}>
+      <div className="rounded-lg border border-slate-800/80 bg-slate-950/50 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+          {username && profileHref && (
+            <a
+              href={profileHref}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="font-semibold text-pink-300 hover:underline"
+            >
+              @{username}
+            </a>
+          )}
+          {username && !profileHref && (
+            <span className="font-semibold text-pink-300">@{username}</span>
+          )}
+          {comment.timestamp && <span>{formatCommentTime(comment.timestamp)}</span>}
+          {comment.like_count != null && <span>♥ {formatCount(comment.like_count)}</span>}
+          {comment.replies_count != null && comment.replies_count > 0 && (
+            <span className="text-slate-600">{formatCount(comment.replies_count)} replies</span>
+          )}
+          {comment.comment_url && (
+            <a href={comment.comment_url} target="_blank" rel="noreferrer noopener" className="text-cyan-500/80 hover:underline">
+              link ↗
+            </a>
+          )}
+        </div>
+        {comment.text && <p className="mt-1 whitespace-pre-wrap text-sm text-slate-200">{comment.text}</p>}
       </div>
-      {comment.text && <p className="mt-1 whitespace-pre-wrap text-sm text-slate-200">{comment.text}</p>}
+      {replies.length > 0 && (
+        <div className="mt-2 space-y-2">
+          {replies.map((reply, idx) => (
+            <CommentRow key={`${reply.username}_${idx}_${depth}`} comment={reply} depth={depth + 1} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 function CommentsPanel({
-  comments,
+  comments: initialComments,
   commentCount,
   sessionHint,
+  postUrl,
 }: {
   comments: SamuraiComment[];
   commentCount?: number;
   sessionHint?: string;
+  postUrl?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [comments, setComments] = useState(initialComments);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetchedViaApify, setFetchedViaApify] = useState(false);
+
+  useEffect(() => {
+    setComments(initialComments);
+    setFetchedViaApify(false);
+    setFetchError(null);
+    setOpen(false);
+  }, [initialComments, postUrl]);
+
   const total = commentCount ?? comments.length;
-  if (!total && comments.length === 0) return null;
+  const displayCount = fetchedViaApify ? comments.length : total;
+  const canFetchApify = Boolean(postUrl);
+  if (!total && comments.length === 0 && !canFetchApify) return null;
+
+  const loadApifyComments = async () => {
+    if (!postUrl || loading) return;
+    setOpen(true);
+    setLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetchApifyInstagramComments(postUrl, { resultsLimit: 15, includeReplies: true });
+      const mapped = mapApifyComments(res.comments);
+      setComments(mapped);
+      setFetchedViaApify(true);
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : 'Failed to load comments');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const subtitle = fetchedViaApify
+    ? `${formatCount(comments.length)} loaded from post`
+    : comments.length > 0
+      ? `${formatCount(comments.length)} from scrape`
+      : canFetchApify
+        ? 'Load full comments to fetch text and replies'
+        : undefined;
 
   return (
-    <div className="mt-3">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:border-pink-500/40 hover:bg-pink-500/10"
-      >
-        <span>{open ? '▾' : '▸'}</span>
-        {open ? 'Hide comments' : 'View comments'}
-        <span className="text-slate-500">({formatCount(total)})</span>
-      </button>
+    <div className="mt-3 overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950/40">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/60 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={open}
+        >
+          <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-[10px] ${
+            open ? 'border-pink-500/40 bg-pink-500/10 text-pink-300' : 'border-slate-700 bg-slate-900 text-slate-500'
+          }`}
+          >
+            {open ? '▾' : '▸'}
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-slate-200">
+              Comments
+              <span className="ml-1.5 font-normal text-slate-500">({formatCount(displayCount)})</span>
+            </p>
+            {subtitle && (
+              <p className="mt-0.5 truncate text-[11px] text-slate-500">{subtitle}</p>
+            )}
+          </div>
+        </button>
+        {canFetchApify && (
+          <button
+            type="button"
+            onClick={loadApifyComments}
+            disabled={loading}
+            className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50"
+          >
+            {loading ? 'Loading…' : fetchedViaApify ? 'Refresh' : 'Load full comments'}
+          </button>
+        )}
+      </div>
+
+      {fetchError && (
+        <p className="mx-3 mt-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+          {fetchError}
+        </p>
+      )}
+
       {open && (
-        <div className="mt-2 space-y-2">
-          {comments.length > 0 ? (
-            comments.map((c, idx) => <CommentRow key={`${c.username}_${idx}`} comment={c} />)
-          ) : (
+        <div className="space-y-2 px-3 py-3">
+          {loading && (
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-slate-800/60 bg-slate-950/50 px-3 py-6 text-sm text-slate-400">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-cyan-400/30 border-t-cyan-400" />
+              Loading comments…
+            </div>
+          )}
+          {!loading && comments.length > 0 && (
+            <>
+              {fetchedViaApify && (
+                <p className="text-[11px] text-cyan-400/80">
+                  Loaded {comments.length} comment{comments.length === 1 ? '' : 's'}
+                  {postUrl ? ` · ${postUrl.replace(/^https?:\/\//, '')}` : ''}
+                </p>
+              )}
+              {comments.map((c, idx) => (
+                <CommentRow key={`${c.username}_${idx}_${c.timestamp || ''}`} comment={c} />
+              ))}
+            </>
+          )}
+          {!loading && comments.length === 0 && (
             <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90">
-              {sessionHint || 'Comment text is not available for this post. Count shown above may still be accurate.'}
+              {sessionHint || 'No comment text from Samurai scrape. Click "Load full comments" to fetch them.'}
             </p>
           )}
         </div>
@@ -303,10 +481,11 @@ function FacebookEmbedFrame({
 }
 
 function InstagramEmbedFrame({ username, height = 480 }: { username: string; height?: number }) {
-  const src = `https://www.instagram.com/${encodeURIComponent(username)}/embed/`;
+  const clean = username.trim().replace(/^@+/, '').split(/[/?#]/)[0];
+  const src = `https://www.instagram.com/${encodeURIComponent(clean)}/embed/`;
   return (
     <iframe
-      title={`Instagram @${username}`}
+      title={`Instagram @${clean}`}
       src={src}
       className="w-full rounded-xl border border-pink-500/25 bg-black"
       style={{ minHeight: height }}
@@ -314,6 +493,38 @@ function InstagramEmbedFrame({ username, height = 480 }: { username: string; hei
       sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       referrerPolicy="no-referrer"
     />
+  );
+}
+
+function InstagramProfileEmbedPanel({
+  username,
+  height = 420,
+  compact = false,
+}: {
+  username: string;
+  height?: number;
+  compact?: boolean;
+}) {
+  const clean = username.trim().replace(/^@+/, '').split(/[/?#]/)[0];
+  if (!clean) return null;
+  const profileVisit = instagramPublicProfileUrl(clean);
+  return (
+    <div className="space-y-2">
+      {!compact && (
+        <p className="text-[11px] text-slate-500">
+          In-app preview below. Use the button to open the full profile on Instagram.
+        </p>
+      )}
+      <InstagramEmbedFrame username={clean} height={height} />
+      <a
+        href={profileVisit}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="inline-flex rounded-lg border border-pink-500/30 bg-pink-500/10 px-3 py-1.5 text-[11px] font-semibold text-pink-200 hover:bg-pink-500/20"
+      >
+        View profile on Instagram ↗
+      </a>
+    </div>
   );
 }
 
@@ -440,13 +651,25 @@ function CarouselMediaGrid({
       <div className="flex snap-x snap-mandatory gap-2 overflow-x-auto p-2">
         {slides.map((src, idx) => (
           <div key={idx} className="w-full min-w-[85%] shrink-0 snap-center sm:min-w-[calc(50%-4px)]">
-            <MediaPreview url={src} alt={`Photo ${idx + 1} of ${slides.length}`} openHref={openHref} />
+            <MediaPreview url={src} alt={`Photo ${idx + 1} of ${slides.length}`} showExternalLink={false} />
           </div>
         ))}
       </div>
       <p className="border-t border-pink-500/10 px-2 py-1.5 text-center text-[11px] text-slate-500">
         {slides.length} photos in this post — swipe to view all
       </p>
+      {openHref && (
+        <div className="border-t border-pink-500/10 px-2 py-2 text-center">
+          <a
+            href={externalVisitUrl(openHref) || openHref}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-[11px] font-semibold text-pink-300 hover:underline"
+          >
+            Open on Instagram ↗
+          </a>
+        </div>
+      )}
     </div>
   );
 }
@@ -487,16 +710,51 @@ function IgPostCard({
   const isReel = Boolean(post.is_video) || post.type === 'Reel' || post.type === 'Video';
   const videoSrc = videoSourceFromPost(post);
   const poster = posterFromPost(post);
-  const preview = isReel ? videoSrc : postPreviewUrl(post as never);
   const visit = externalVisitUrl(pickMediaUrl(post.live_url as string, post.url as string));
   const shortcode = extractIgShortcode(visit, post.shortcode as string | undefined);
+  const postUrl = buildIgPostUrl({ url: visit, shortcode, isReel });
   const media = (post.media as Record<string, unknown>[] | undefined) ?? [];
   const isCarousel = !isReel && (media.length > 1 || post.type === 'Carousel');
   const comments = normalizeComments(post.comments);
   const engagement = postEngagement(post);
   const hashtags = (post.hashtags as string[] | undefined) ?? [];
   const mentions = (post.mentions as string[] | undefined) ?? [];
-  const showEmbed = !preview && !isCarousel && Boolean(shortcode);
+
+  const [resolvedVideo, setResolvedVideo] = useState<string | undefined>(videoSrc);
+  const [resolvedPoster, setResolvedPoster] = useState<string | undefined>(poster);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaError, setMediaError] = useState(false);
+
+  useEffect(() => {
+    setResolvedVideo(videoSrc);
+    setResolvedPoster(poster);
+    setMediaError(false);
+  }, [videoSrc, poster, shortcode]);
+
+  useEffect(() => {
+    if (!isReel || videoSrc || !shortcode) return;
+    let cancelled = false;
+    setMediaLoading(true);
+    fetchIgPostMedia(shortcode)
+      .then((data) => {
+        if (cancelled) return;
+        if (data.video_url) setResolvedVideo(data.video_url);
+        if (data.display_url) setResolvedPoster(data.display_url);
+        if (!data.video_url && !data.display_url) setMediaError(true);
+      })
+      .catch(() => {
+        if (!cancelled) setMediaError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setMediaLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isReel, videoSrc, shortcode]);
+
+  const preview = isReel ? resolvedVideo : postPreviewUrl(post as never);
+  const showEmbed = !isReel && !preview && !isCarousel && Boolean(shortcode);
 
   return (
     <article className="overflow-hidden rounded-xl border border-pink-500/20 bg-pink-500/5">
@@ -511,8 +769,25 @@ function IgPostCard({
           <InstagramPostEmbed shortcode={shortcode} url={visit} />
         ) : isCarousel ? (
           <CarouselMediaGrid media={media} openHref={visit} />
+        ) : mediaLoading && isReel && !preview ? (
+          <div className="flex aspect-[9/16] max-h-[28rem] items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-sm text-slate-400">
+            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-pink-400/30 border-t-pink-400" />
+            <span className="ml-2">Loading reel…</span>
+          </div>
         ) : (
-          <MediaPreview url={preview} alt={String(post.caption || 'Instagram post')} isVideo={isReel} posterUrl={poster} openHref={visit} />
+          <MediaPreview
+            url={preview}
+            alt={String(post.caption || 'Instagram post')}
+            isVideo={isReel}
+            posterUrl={resolvedPoster || poster}
+            clickToPlay={isReel}
+            showExternalLink={false}
+          />
+        )}
+        {isReel && mediaError && !preview && !mediaLoading && (
+          <p className="mt-2 text-xs text-amber-300/90">
+            Could not load reel video in-app. Use Open on Instagram below.
+          </p>
         )}
         <EngagementBar likes={engagement.likes} views={engagement.views} comments={engagement.comments} duration={engagement.duration} />
         {post.caption != null && String(post.caption) && (
@@ -520,11 +795,18 @@ function IgPostCard({
         )}
         {hashtags.length > 0 && <p className="mt-2 text-xs text-pink-300/80">{hashtags.map((h) => `#${h}`).join(' ')}</p>}
         {mentions.length > 0 && <p className="mt-1 text-xs text-slate-400">Mentions: {mentions.map((m) => `@${m}`).join(', ')}</p>}
-        <CommentsPanel comments={comments} commentCount={engagement.comments} sessionHint={sessionHint} />
+        <CommentsPanel comments={comments} commentCount={engagement.comments} sessionHint={sessionHint} postUrl={postUrl} />
         {visit && (
-          <a href={externalVisitUrl(visit) || visit} target="_blank" rel="noreferrer noopener" className="mt-3 inline-flex rounded-lg border border-pink-500/30 bg-pink-500/10 px-3 py-1.5 text-xs font-semibold text-pink-200 hover:bg-pink-500/20">
-            Open on Instagram ↗
-          </a>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a
+              href={externalVisitUrl(visit) || visit}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex rounded-lg border border-pink-500/30 bg-pink-500/10 px-3 py-1.5 text-xs font-semibold text-pink-200 hover:bg-pink-500/20"
+            >
+              Open on Instagram ↗
+            </a>
+          </div>
         )}
       </div>
     </article>
@@ -592,6 +874,366 @@ function FbMediaCard({
   );
 }
 
+function postTypeLabel(type?: string): string {
+  if (type === 'reel') return 'Reel';
+  if (type === 'tv') return 'IGTV';
+  if (type === 'post') return 'Post';
+  return 'Media';
+}
+
+function CollapsibleBlock({
+  title,
+  subtitle,
+  open,
+  onToggle,
+  children,
+  accent = 'slate',
+}: {
+  title: string;
+  subtitle?: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+  accent?: 'cyan' | 'pink' | 'slate';
+}) {
+  const accentBorder = accent === 'cyan'
+    ? 'border-cyan-500/20'
+    : accent === 'pink'
+      ? 'border-pink-500/20'
+      : 'border-slate-800/80';
+  return (
+    <div className={`overflow-hidden rounded-xl border bg-slate-950/40 ${accentBorder}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-900/50"
+      >
+        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-[10px] ${
+          open ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300' : 'border-slate-700 bg-slate-900 text-slate-500'
+        }`}
+        >
+          {open ? '−' : '+'}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold tracking-wide text-slate-200">{title}</p>
+          {subtitle && <p className="mt-0.5 text-[11px] text-slate-500">{subtitle}</p>}
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-slate-800/60 px-4 pb-4 pt-3">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  hint,
+  tone = 'default',
+}: {
+  label: string;
+  value: string | number;
+  hint?: string;
+  tone?: 'default' | 'cyan' | 'pink';
+}) {
+  const toneClass = tone === 'cyan'
+    ? 'border-cyan-500/25 bg-gradient-to-br from-cyan-950/40 to-slate-950/60'
+    : tone === 'pink'
+      ? 'border-pink-500/25 bg-gradient-to-br from-pink-950/30 to-slate-950/60'
+      : 'border-slate-800/80 bg-slate-950/50';
+  return (
+    <div className={`rounded-xl border px-4 py-3 ${toneClass}`}>
+      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-semibold tabular-nums text-white">{value}</p>
+      {hint && <p className="mt-1 text-[10px] text-slate-500">{hint}</p>}
+    </div>
+  );
+}
+
+function TopCommentersPanel({
+  postUrls,
+  profileUsername,
+}: {
+  postUrls: string[];
+  profileUsername: string;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [overviewOpen, setOverviewOpen] = useState(true);
+  const [commentersOpen, setCommentersOpen] = useState(true);
+  const [stats, setStats] = useState<{
+    posts_analyzed: number;
+    total_comments: number;
+    unique_commenters: number;
+    top_commenters: TopCommenter[];
+  } | null>(null);
+  const [expandedUser, setExpandedUser] = useState<string | null>(null);
+
+  if (postUrls.length === 0) return null;
+
+  const loadStats = async () => {
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+    setPanelOpen(true);
+    try {
+      const res = await fetchInstagramTopCommenters(postUrls, {
+        profileUsername,
+        resultsLimit: 15,
+        topN: 10,
+      });
+      setStats({
+        posts_analyzed: res.posts_analyzed,
+        total_comments: res.total_comments,
+        unique_commenters: res.unique_commenters,
+        top_commenters: res.top_commenters,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load comment statistics');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const summaryLine = stats
+    ? `${formatCount(stats.posts_analyzed)} posts · ${formatCount(stats.total_comments)} comments · ${formatCount(stats.top_commenters.length)} top users`
+    : `${postUrls.length} posts ready to analyze`;
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-cyan-500/20 bg-gradient-to-b from-cyan-950/25 via-slate-950/40 to-slate-950/20 shadow-lg shadow-cyan-950/20">
+      <div className="flex flex-wrap items-center gap-3 border-b border-cyan-500/15 bg-cyan-950/20 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setPanelOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          aria-expanded={panelOpen}
+        >
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-sm transition ${
+            panelOpen
+              ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-200'
+              : 'border-slate-700 bg-slate-900/80 text-slate-400'
+          }`}
+          >
+            {panelOpen ? '▾' : '▸'}
+          </span>
+          <div className="min-w-0">
+            <h4 className="text-sm font-bold text-white">Comment statistics</h4>
+            <p className="mt-0.5 truncate text-[11px] text-slate-400">
+              {summaryLine}
+              {profileUsername ? ` · excl. @${profileUsername}` : ''}
+            </p>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={loadStats}
+          disabled={loading}
+          className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-500/15 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-400/50 hover:bg-cyan-500/25 disabled:opacity-50"
+        >
+          {loading ? 'Loading…' : stats ? 'Refresh' : 'Analyze'}
+        </button>
+      </div>
+
+      {panelOpen && (
+        <div className="space-y-4 p-4">
+          {error && (
+            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+              {error}
+            </p>
+          )}
+
+          {!stats && !loading && !error && (
+            <p className="rounded-xl border border-dashed border-slate-700/80 bg-slate-950/30 px-4 py-6 text-center text-sm text-slate-400">
+              Click <span className="font-semibold text-cyan-300">Analyze</span> to load comment stats for {postUrls.length} posts.
+            </p>
+          )}
+
+          {loading && (
+            <div className="flex items-center justify-center gap-3 rounded-xl border border-slate-800/60 bg-slate-950/40 px-4 py-8 text-sm text-slate-400">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-cyan-400/30 border-t-cyan-400" />
+              Loading statistics…
+            </div>
+          )}
+
+          {stats && !loading && (
+            <div className="space-y-3">
+              <CollapsibleBlock
+                title="Overview"
+                subtitle="Summary across all analyzed posts"
+                open={overviewOpen}
+                onToggle={() => setOverviewOpen((v) => !v)}
+                accent="cyan"
+              >
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <StatCard label="Posts analyzed" value={formatCount(stats.posts_analyzed)} tone="cyan" />
+                  <StatCard label="Comments scraped" value={formatCount(stats.total_comments)} />
+                  <StatCard
+                    label="Unique commenters"
+                    value={formatCount(stats.unique_commenters)}
+                    tone="pink"
+                    hint={`Top ${stats.top_commenters.length} shown below`}
+                  />
+                </div>
+              </CollapsibleBlock>
+
+              <CollapsibleBlock
+                title="Top commenters"
+                subtitle={stats.top_commenters.length === 0 ? 'No comments found' : 'Ranked by total comments · click username to open profile on Instagram'}
+                open={commentersOpen}
+                onToggle={() => setCommentersOpen((v) => !v)}
+                accent="pink"
+              >
+                {stats.top_commenters.length === 0 ? (
+                  <p className="text-xs text-slate-400">No comments returned for these posts.</p>
+                ) : (
+                  <ol className="space-y-2">
+                    {stats.top_commenters.map((user, idx) => {
+                      const open = expandedUser === user.username;
+                      const postsPct = stats.posts_analyzed > 0
+                        ? Math.round((user.posts_count / stats.posts_analyzed) * 100)
+                        : 0;
+                      const maxComments = stats.top_commenters[0]?.comment_count || 1;
+                      const barPct = Math.round((user.comment_count / maxComments) * 100);
+                      return (
+                        <li
+                          key={user.username}
+                          className="overflow-hidden rounded-xl border border-slate-800/70 bg-slate-950/50 transition hover:border-pink-500/20"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setExpandedUser(open ? null : user.username)}
+                            className="flex w-full items-start gap-3 px-3 py-3 text-left hover:bg-slate-900/40"
+                          >
+                            <span className="mt-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/20 to-pink-500/20 text-[11px] font-bold text-cyan-200">
+                              {idx + 1}
+                            </span>
+                            {user.profile_pic_url ? (
+                              <img
+                                src={user.profile_pic_url}
+                                alt=""
+                                className="h-11 w-11 shrink-0 rounded-full border-2 border-pink-500/25 object-cover ring-2 ring-slate-900"
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-slate-700 bg-slate-900 text-sm font-semibold text-pink-300">
+                                {(user.username[0] || '?').toUpperCase()}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <a
+                                  href={instagramPublicProfileUrl(user.username)}
+                                  target="_blank"
+                                  rel="noreferrer noopener"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="font-semibold text-pink-200 hover:underline"
+                                >
+                                  @{user.username}
+                                </a>
+                                {user.is_verified && <Badge variant="success">Verified</Badge>}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                <span className="rounded-full border border-slate-700 bg-slate-900/80 px-2 py-0.5 text-[10px] text-slate-300">
+                                  {formatCount(user.comment_count)} comments
+                                </span>
+                                <span className="rounded-full border border-pink-500/20 bg-pink-500/10 px-2 py-0.5 text-[10px] text-pink-200">
+                                  {formatCount(user.posts_count)} posts
+                                </span>
+                                {(user.reply_count ?? 0) > 0 && (
+                                  <span className="rounded-full border border-slate-700 bg-slate-900/80 px-2 py-0.5 text-[10px] text-slate-300">
+                                    {formatCount(user.reply_count)} replies
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-cyan-500/70 to-pink-500/70"
+                                  style={{ width: `${barPct}%` }}
+                                />
+                              </div>
+                              {stats.posts_analyzed > 1 && (
+                                <p className="mt-1.5 text-[10px] text-slate-500">
+                                  Active on {postsPct}% of posts ({user.posts_count}/{stats.posts_analyzed})
+                                </p>
+                              )}
+                            </div>
+                            <span className="mt-2 shrink-0 text-xs text-slate-500">{open ? '▾' : '▸'}</span>
+                          </button>
+                          {open && (
+                            <div className="space-y-3 border-t border-slate-800/70 bg-slate-950/30 px-3 py-3">
+                              <a
+                                href={instagramPublicProfileUrl(user.username)}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                                className="inline-flex rounded-lg border border-pink-500/30 bg-pink-500/10 px-3 py-1.5 text-xs font-semibold text-pink-200 hover:bg-pink-500/20"
+                              >
+                                View @{user.username} on Instagram ↗
+                              </a>
+                              <p className="text-[11px] text-slate-500">
+                                {formatCount(user.posts_count)} posts ·
+                                {' '}{formatCount(user.top_level_count ?? user.comment_count)} top-level ·
+                                {' '}{formatCount(user.reply_count ?? 0)} replies
+                                {(user.total_likes ?? 0) > 0 && ` · ♥ ${formatCount(user.total_likes)}`}
+                              </p>
+                              {user.by_post.map((group) => (
+                                <div key={group.post_url} className="rounded-xl border border-slate-800/60 bg-slate-950/50 p-3">
+                                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                                    <Badge variant="muted">{postTypeLabel(group.post_type)}</Badge>
+                                    <span className="font-mono font-semibold text-slate-200">{group.shortcode || 'post'}</span>
+                                    <span className="text-pink-300/90">
+                                      {formatCount(group.comment_count ?? group.comments.length)} from this user
+                                    </span>
+                                    <a
+                                      href={instagramPublicPostUrl(group.post_url) || group.post_url}
+                                      target="_blank"
+                                      rel="noreferrer noopener"
+                                      className="ml-auto text-cyan-400 hover:underline"
+                                    >
+                                      Open ↗
+                                    </a>
+                                  </div>
+                                  <ul className="mt-2 space-y-2">
+                                    {group.comments.map((c, cIdx) => (
+                                      <li
+                                        key={`${group.post_url}_${cIdx}`}
+                                        className="rounded-lg border border-slate-800/50 bg-slate-900/40 px-3 py-2"
+                                      >
+                                        {c.is_reply && (
+                                          <span className="mb-1 inline-block rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                            Reply
+                                          </span>
+                                        )}
+                                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-100">{c.text || '—'}</p>
+                                        <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                                          {c.timestamp && <span>{formatCommentTime(c.timestamp)}</span>}
+                                          {c.like_count != null && <span>♥ {formatCount(c.like_count)}</span>}
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
+              </CollapsibleBlock>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InstagramSection({ data }: { data: Record<string, unknown> }) {
   const profile = (data.profile as Record<string, unknown> | undefined) ?? {};
   const links = (data.links as Record<string, unknown> | undefined) ?? {};
@@ -602,6 +1244,25 @@ function InstagramSection({ data }: { data: Record<string, unknown> }) {
   const posts = allPosts.filter(
     (post) => !post.is_video && post.type !== 'Reel' && post.type !== 'Video',
   );
+  const cappedPosts = useMemo(() => posts.slice(0, IG_MAX_POSTS), [posts]);
+  const cappedReels = useMemo(() => reels.slice(0, IG_MAX_POSTS), [reels]);
+  const totalMedia = cappedPosts.length + cappedReels.length;
+  const [mediaExpanded, setMediaExpanded] = useState(false);
+  const initialPhotoBatch = useMemo(
+    () => cappedPosts.slice(0, Math.min(IG_INITIAL_VISIBLE, cappedPosts.length)),
+    [cappedPosts],
+  );
+  const photosRemaining = Math.max(0, cappedPosts.length - initialPhotoBatch.length);
+  const visiblePhotos = mediaExpanded ? cappedPosts : initialPhotoBatch;
+  const visibleReels = mediaExpanded
+    ? cappedReels
+    : (cappedPosts.length === 0 ? cappedReels.slice(0, IG_INITIAL_VISIBLE) : []);
+  const hiddenReelCount = mediaExpanded
+    ? 0
+    : (cappedPosts.length === 0
+      ? Math.max(0, cappedReels.length - IG_INITIAL_VISIBLE)
+      : cappedReels.length);
+  const hasMoreMedia = photosRemaining > 0 || hiddenReelCount > 0;
   const apiResponse = data.api_response as Record<string, unknown> | undefined;
   const bio = resolveIgBiography(profile, apiResponse);
   const authenticated = data.authenticated === true;
@@ -617,6 +1278,10 @@ function InstagramSection({ data }: { data: Record<string, unknown> }) {
   const avatar = resolveMediaUrl(profile.profile_pic_url as string);
   const externalUrl = String(profile.external_url || '').trim();
   const profileVisit = externalVisitUrl(instagramProfileUrl(username));
+  const postUrls = useMemo(
+    () => collectIgPostUrls(cappedPosts, cappedReels, IG_MAX_POSTS),
+    [cappedPosts, cappedReels],
+  );
 
   return (
     <div className="space-y-4">
@@ -675,6 +1340,14 @@ function InstagramSection({ data }: { data: Record<string, unknown> }) {
         </div>
       </div>
 
+      {username && (
+        <InstagramTimelinePanel profileUsername={username} />
+      )}
+
+      {postUrls.length > 0 && (
+        <TopCommentersPanel postUrls={postUrls} profileUsername={username} />
+      )}
+
       {username && usePublicEmbed && !hasServerMedia && (
         <div>
           <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-pink-400">Profile & recent posts</h4>
@@ -682,36 +1355,78 @@ function InstagramSection({ data }: { data: Record<string, unknown> }) {
         </div>
       )}
 
-      {(posts.length > 0 || reels.length > 0) && (
+      {(cappedPosts.length > 0 || cappedReels.length > 0) && (
         <div className="space-y-6 rounded-xl border border-pink-500/25 bg-pink-950/10 p-4">
-          <SamuraiSectionHeader
-            title={`@${username || 'target'} — profile posts`}
-            subtitle="Target account media loaded in-app"
-            accent="pink"
-          />
-          {reels.length > 0 && (
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-pink-500/20 pb-3">
+            <div>
+              <SamuraiSectionHeader
+                title={`@${username || 'target'} — profile posts`}
+                subtitle={
+                  totalMedia < IG_MAX_POSTS
+                    ? `Showing all ${totalMedia} available post${totalMedia === 1 ? '' : 's'}`
+                    : `Up to ${IG_MAX_POSTS} recent posts from this account`
+                }
+                accent="pink"
+              />
+            </div>
+            <p className="text-[11px] text-slate-500">
+              {mediaExpanded
+                ? `Showing ${visiblePhotos.length + visibleReels.length} of ${totalMedia}`
+                : `Showing ${visiblePhotos.length} of ${totalMedia} — photos first`}
+            </p>
+          </div>
+
+          {visiblePhotos.length > 0 && (
             <div className="space-y-3">
               <h5 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                Reels & videos ({reels.length})
+                Photos & carousels ({visiblePhotos.length}{!mediaExpanded && cappedPosts.length > visiblePhotos.length ? ` / ${cappedPosts.length}` : ''})
               </h5>
               <div className="grid gap-4 md:grid-cols-2">
-                {reels.map((post, idx) => (
+                {visiblePhotos.map((post, idx) => (
                   <IgPostCard key={String(post.shortcode || post.url || idx)} post={post} index={idx} sessionHint={sessionHint} />
                 ))}
               </div>
             </div>
           )}
-          {posts.length > 0 && (
+
+          {visibleReels.length > 0 && (
             <div className="space-y-3">
               <h5 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                Recent posts ({posts.length})
+                Reels & videos ({visibleReels.length})
               </h5>
               <div className="grid gap-4 md:grid-cols-2">
-                {posts.map((post, idx) => (
-                  <IgPostCard key={String(post.shortcode || post.url || idx)} post={post} index={idx} sessionHint={sessionHint} />
+                {visibleReels.map((post, idx) => (
+                  <IgPostCard
+                    key={String(post.shortcode || post.url || idx)}
+                    post={post}
+                    index={visiblePhotos.length + idx}
+                    sessionHint={sessionHint}
+                  />
                 ))}
               </div>
             </div>
+          )}
+
+          {hasMoreMedia && !mediaExpanded && (
+            <button
+              type="button"
+              onClick={() => setMediaExpanded(true)}
+              className="w-full rounded-xl border border-dashed border-pink-500/30 bg-pink-500/5 px-4 py-3 text-sm font-semibold text-pink-200 transition hover:border-pink-400/40 hover:bg-pink-500/10"
+            >
+              Load reels & more posts
+              {' '}
+              ({photosRemaining + hiddenReelCount} more)
+            </button>
+          )}
+
+          {mediaExpanded && hasMoreMedia && (
+            <button
+              type="button"
+              onClick={() => setMediaExpanded(false)}
+              className="text-xs font-semibold text-slate-500 hover:text-slate-300"
+            >
+              Show fewer posts
+            </button>
           )}
         </div>
       )}

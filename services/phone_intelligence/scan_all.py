@@ -15,7 +15,7 @@ try:
 except ImportError:
     DDGS = None  # type: ignore
 
-from services.phone_intelligence.number_parser import parse_phone_number
+from services.phone_intelligence.number_parser import coalesce_number_info, parse_phone_number
 from services.phone_intelligence.social_lookup import lookup_social_accounts
 
 PHONEINFOGA_BASE = os.environ.get("PHONEINFOGA_BASE", "http://127.0.0.1:5000/api")
@@ -246,6 +246,7 @@ def scan_phone_all(number: str, *, include_web: bool = True) -> dict[str, Any]:
 
     number_info = fetch_phoneinfoga_number_info(number)
     api_reachable = number_info is not None
+    number_info = coalesce_number_info(number, number_info)
     if not number_info:
         number_info = parse_phone_number(number)
     if not number_info:
@@ -329,12 +330,13 @@ def scan_phone_social_only(number: str) -> dict[str, Any]:
     apply_phone_env()
 
     number_info = fetch_phoneinfoga_number_info(number)
+    number_info = coalesce_number_info(number, number_info)
     if not number_info:
         number_info = parse_phone_number(number)
     if not number_info:
         return {"success": False, "error": "Invalid or unparsable phone number"}
 
-    social_accounts = lookup_social_accounts(number_info, fast_only=False)
+    social_accounts = lookup_social_accounts(number_info, fast_only=True)
     return {
         "success": True,
         "number": number_info,

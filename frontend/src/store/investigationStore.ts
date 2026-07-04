@@ -51,6 +51,7 @@ interface InvestigationState {
   addReview: (review: ReviewRecord) => void;
   addChatMessage: (msg: ChatMessage) => void;
   updateChatMessage: (id: string, content: string) => void;
+  clearChatMessages: () => void;
   setBackendHealth: (h: 'ok' | 'down' | 'checking') => void;
   setToolsHealth: (tools: Record<string, BackendToolHealth>) => void;
   setUploadedImage: (previewUrl: string | null, filename: string | null) => void;
@@ -175,6 +176,7 @@ export const useInvestigationStore = create<InvestigationState>((set) => ({
     set((s) => ({
       chatMessages: s.chatMessages.map((m) => (m.id === id ? { ...m, content } : m)),
     })),
+  clearChatMessages: () => set({ chatMessages: [] }),
   setBackendHealth: (h) => set({ backendHealth: h }),
   setToolsHealth: (tools) => set({ toolsHealth: tools }),
   setUploadedImage: (previewUrl, filename) =>

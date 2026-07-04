@@ -29,7 +29,7 @@ async def test_greeting_uses_llm(tmp_path, monkeypatch):
     }
     context = {"investigation_id": "inv-hi", "query": "alice", "result": result}
 
-    with patch("services.copilot.ollama_available", new=AsyncMock(return_value=True)):
+    with patch("services.copilot.llm_available", new=AsyncMock(return_value=True)):
         with patch(
             "services.copilot.chat_with_qwen",
             new=AsyncMock(return_value="Hello! Ready to help with alice."),
@@ -55,7 +55,7 @@ async def test_casual_uses_llm(tmp_path, monkeypatch):
     }
     context = {"investigation_id": "inv-casual", "query": "alice", "result": result}
 
-    with patch("services.copilot.ollama_available", new=AsyncMock(return_value=True)):
+    with patch("services.copilot.llm_available", new=AsyncMock(return_value=True)):
         with patch("services.copilot.chat_with_qwen", new=AsyncMock(return_value="All good here.")) as chat:
             out = await answer_copilot_async("hey whats up", context)
 
@@ -84,7 +84,7 @@ async def test_case_always_uses_llm(tmp_path, monkeypatch):
     }
     context = {"investigation_id": "inv-brief", "query": "alice", "result": result}
 
-    with patch("services.copilot.ollama_available", new=AsyncMock(return_value=True)):
+    with patch("services.copilot.llm_available", new=AsyncMock(return_value=True)):
         with patch(
             "services.copilot.chat_with_qwen",
             new=AsyncMock(return_value="GitHub profile found for alice."),
@@ -111,7 +111,7 @@ async def test_stream_yields_tokens(tmp_path, monkeypatch):
     }
     context = {"investigation_id": "inv-stream", "query": "alice", "result": result}
 
-    with patch("services.copilot.ollama_available", new=AsyncMock(return_value=True)):
+    with patch("services.copilot.llm_available", new=AsyncMock(return_value=True)):
         with patch("services.copilot.stream_chat_with_qwen", side_effect=_fake_stream):
             events = []
             async for event in stream_copilot_events("accounts?", context):
@@ -133,7 +133,7 @@ async def test_offline_reports_ollama_required():
             "correlation": {"clusters": []},
         },
     }
-    with patch("services.copilot.ollama_available", new=AsyncMock(return_value=False)):
+    with patch("services.copilot.llm_available", new=AsyncMock(return_value=False)):
         out = await answer_copilot_async("explain correlation cluster risk", context)
     assert out["engine"] == "offline"
-    assert "Ollama" in out["answer"]
+    assert "Ollama" in out["answer"] or "xAI" in out["answer"]

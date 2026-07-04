@@ -20,8 +20,10 @@ from services.copilot_context import (
 from services.copilot_llm import (
     chat_with_qwen,
     context_max_chars,
+    copilot_engine_name,
     copilot_model,
-    ollama_available,
+    copilot_provider,
+    llm_available,
     prewarm_copilot_model,
     stream_chat_with_qwen,
 )
@@ -31,6 +33,7 @@ from services.copilot_store import (
     load_case_copilot_pack,
     load_copilot_pack,
 )
+from services.copilot_verifier import build_opening_summary, build_hybrid_llm_context, _research_has_content
 from services.investigation_brief import brief_to_text
 
 logger = logging.getLogger(__name__)
@@ -40,9 +43,24 @@ _SESSION_CACHE: dict[str, dict[str, Any]] = {}
 _CACHE_TTL_SEC = 3600
 
 _LLM_OFFLINE_MSG = (
-    f"Copilot requires {copilot_model()} via Ollama.\n\n"
-    f"  ollama pull {copilot_model()}\n  ollama serve\n\n"
-    f"Endpoint: {os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434')}"
+    {
+        "xai": (
+            f"Copilot requires Grok via xAI API.\n\n"
+            f"  Set XAI_API_KEY in .env and COPILOT_PROVIDER=xai\n\n"
+        ),
+        "gemini": (
+            "Copilot requires Gemini via Google AI.\n\n"
+            "  Set GEMINI_API_KEY in .env and COPILOT_PROVIDER=gemini\n\n"
+            "  Get a free key: https://aistudio.google.com/apikey\n"
+        ),
+    }.get(
+        copilot_provider(),
+        (
+            f"Copilot requires {copilot_model()} via Ollama.\n\n"
+            f"  ollama pull {copilot_model()}\n  ollama serve\n\n"
+            f"Endpoint: {os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434')}"
+        ),
+    )
 )
 
 
@@ -58,7 +76,7 @@ def _build_brief_in_memory(raw_full: dict[str, Any], *, query: str = "") -> dict
 
 
 def _case_context_max_chars() -> int:
-    return int(os.getenv("COPILOT_CASE_CONTEXT_MAX_CHARS", "8000"))
+    return int(os.getenv("COPILOT_CASE_CONTEXT_MAX_CHARS", "96000"))
 
 
 def _cache_key(*, case_id: str = "", investigation_id: str = "") -> str:
@@ -124,17 +142,15 @@ async def _resolve_brief_and_context(
     if not brief and raw_full:
         brief = await asyncio.to_thread(_build_brief_in_memory, raw_full, query=query)
 
-    if case_id:
-        llm_ctx = await asyncio.to_thread(
-            build_case_copilot_llm_context,
-            case_id,
-            current_investigation_id=investigation_id,
-            current_result=current_result or raw_full,
-            current_query=query,
-            max_chars=limit,
-        )
-    else:
-        llm_ctx = await asyncio.to_thread(build_copilot_llm_context, raw_full, max_chars=limit)
+    llm_ctx = await asyncio.to_thread(
+        build_hybrid_llm_context,
+        case_id=case_id,
+        investigation_id=investigation_id,
+        result=current_result or raw_full,
+        query=query,
+    )
+    if len(llm_ctx) > limit:
+        llm_ctx = llm_ctx[:limit]
 
     _cache_session(cache_key, brief=brief if isinstance(brief, dict) else None, llm_context=llm_ctx)
     return brief, llm_ctx
@@ -164,7 +180,7 @@ async def _prepare_llm_session(
 
     asyncio.create_task(prewarm_copilot_model(force=True))
 
-    online_task = asyncio.create_task(ollama_available())
+    online_task = asyncio.create_task(llm_available())
     context_task = asyncio.create_task(
         _resolve_brief_and_context(
             investigation_id,
@@ -198,6 +214,36 @@ async def _prepare_llm_session(
             "investigation_id": investigation_id,
             "case_id": case_id,
         }
+
+    try:
+        import json as _json
+
+        ctx_obj = _json.loads(context_json)
+        verified_n = int(ctx_obj.get("verified_count") or len(ctx_obj.get("verified_findings") or []))
+        inv_count = int(ctx_obj.get("investigation_count") or len(ctx_obj.get("investigations") or []))
+        research = ctx_obj.get("research_intel")
+        has_research = inv_count > 0
+        if isinstance(research, list):
+            has_research = has_research or any(_research_has_content(r) for r in research if isinstance(r, dict))
+        elif isinstance(research, dict):
+            has_research = has_research or _research_has_content(research)
+        if not has_research:
+            for inv in ctx_obj.get("investigations") or []:
+                if isinstance(inv, dict) and _research_has_content(inv.get("research_intel") or {}):
+                    has_research = True
+                    break
+        if verified_n == 0 and not has_research and ctx_obj.get("scope") != "empty":
+            return {
+                "error": "no_data",
+                "answer": (
+                    "Investigations exist but nothing passed cross-check verification yet. "
+                    "Run Samurai or live-scan tools, or corroborate findings across multiple sources."
+                ),
+                "investigation_id": investigation_id,
+                "case_id": case_id,
+            }
+    except Exception:
+        pass
 
     return {
         "investigation_id": investigation_id,
@@ -264,7 +310,7 @@ async def answer_copilot_async(message: str, context: dict[str, Any]) -> dict[st
             "brief_status": brief.get("status") if isinstance(brief, dict) else None,
             "pack_version": (session.get("pack") or {}).get("pack_version", PACK_VERSION),
         },
-        "engine": "qwen",
+        "engine": copilot_engine_name(),
     }
 
 
@@ -301,7 +347,7 @@ async def stream_copilot_events(message: str, context: dict[str, Any]) -> AsyncI
         yield {
             "done": True,
             "answer": answer,
-            "engine": "qwen",
+            "engine": copilot_engine_name(),
             "mode": "llm_stream",
             "model": copilot_model(),
             "scope": session.get("scope") or "investigation",
@@ -324,7 +370,7 @@ async def stream_copilot_events(message: str, context: dict[str, Any]) -> AsyncI
             yield {
                 "done": True,
                 "answer": answer,
-                "engine": "qwen",
+                "engine": copilot_engine_name(),
                 "mode": "llm_fallback",
                 "scope": session.get("scope") or "investigation",
             }
@@ -337,6 +383,33 @@ async def stream_copilot_events(message: str, context: dict[str, Any]) -> AsyncI
                 "done": True,
                 "answer": partial or f"Copilot failed: {exc2}",
             }
+
+
+async def get_copilot_opening_summary(context: dict[str, Any]) -> dict[str, Any]:
+    """Rule-based verified summary for copilot open — no LLM hallucination risk."""
+    investigation_id = str(context.get("investigation_id") or "")
+    case_id = str(context.get("case_id") or "")
+    result = context.get("result") if isinstance(context.get("result"), dict) else {}
+    query = str(context.get("query") or result.get("query") or "")
+
+    if not case_id and not result and investigation_id:
+        try:
+            from services.investigation_runner import get_investigation
+
+            inv = get_investigation(investigation_id)
+            if inv and isinstance(inv.get("result"), dict):
+                result = inv["result"]
+                query = query or str(inv.get("query") or "")
+        except Exception:
+            pass
+
+    return await asyncio.to_thread(
+        build_opening_summary,
+        case_id=case_id,
+        investigation_id=investigation_id,
+        result=result or None,
+        query=query,
+    )
 
 
 def answer_copilot(message: str, context: dict[str, Any]) -> dict[str, Any]:

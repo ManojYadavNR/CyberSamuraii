@@ -142,7 +142,7 @@ def _fallback_tools(feature: str, *, input_type: str = "") -> list[str]:
 
     defaults: dict[str, list[str]] = {
         "username_search": ["platform_probe", "maigret", "sherlock", "social_analyzer", "samurai", "google_dorking"],
-        "email_intel": ["holehe", "theharvester", "spiderfoot", "google_dorking"],
+        "email_intel": ["holehe", "gravatar", "maigret", "blackbird", "theharvester", "spiderfoot", "google_dorking"],
         "domain_intel": ["theharvester", "spiderfoot", "recon_ng", "google_dorking"],
         "infra_intel": (
             ["phoneinfoga", "phone_social_intel", "google_dorking"]

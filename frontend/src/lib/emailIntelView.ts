@@ -154,7 +154,7 @@ export function hasEmailIntel(result: InvestigationResult | null, query: string)
   if ((result.confirmed_findings?.length ?? 0) > 0) return true;
   if (result.scan_summary && Object.keys(result.scan_summary).length > 0) return true;
   return result.tool_results?.some((t) =>
-    ['holehe', 'gravatar', 'ghunt', 'theharvester', 'google_dorking'].includes(t.tool),
+    ['holehe', 'gravatar', 'ghunt', 'theharvester', 'google_dorking', 'maigret', 'blackbird', 'spiderfoot'].includes(t.tool),
   ) ?? false;
 }
 
@@ -165,6 +165,8 @@ const TOOL_LABELS: Record<string, string> = {
   theharvester: 'theHarvester',
   google_dorking: 'Google dorking',
   spiderfoot: 'SpiderFoot',
+  maigret: 'Maigret (username probe)',
+  blackbird: 'Blackbird (username probe)',
 };
 
 function _toolRows(result: InvestigationResult, tool: string): {
@@ -195,7 +197,7 @@ export function emailToolStatuses(result: InvestigationResult | null): EmailTool
   const summary = result.scan_summary ?? {};
   const out: EmailToolStatus[] = [];
 
-  for (const tool of ['holehe', 'gravatar', 'ghunt', 'theharvester', 'google_dorking', 'spiderfoot']) {
+  for (const tool of ['holehe', 'gravatar', 'ghunt', 'maigret', 'blackbird', 'theharvester', 'google_dorking', 'spiderfoot']) {
     const trInfo = _toolRows(result, tool);
     const row = summary[tool] as Record<string, unknown> | undefined;
     if (!trInfo.summary && !trInfo.rows.length && trInfo.success === undefined && !row) continue;
@@ -250,6 +252,12 @@ export function emailToolStatuses(result: InvestigationResult | null): EmailTool
     } else if (tool === 'spiderfoot') {
       const items = Math.max(Number(row?.items ?? 0), trInfo.rows.length);
       detail = String(row?.note ?? trInfo.summary?.note ?? `${items} item(s)`);
+    } else if (tool === 'maigret' || tool === 'blackbird') {
+      const profiles = Math.max(Number(row?.profiles ?? 0), trInfo.rows.filter((r) => r.url).length);
+      status = profiles > 0 ? 'found' : 'not_found';
+      detail = profiles > 0
+        ? `${profiles} public profile URL(s) from email username`
+        : String(row?.note ?? trInfo.raw ?? 'No profiles linked to email handle');
     } else if (trInfo.error) {
       detail = trInfo.error;
     }

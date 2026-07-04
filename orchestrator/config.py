@@ -84,7 +84,7 @@ TOOL_TIMEOUTS: dict[str, float] = {
     "ghunt": 90.0,
     "gravatar": 30.0,
     "phoneinfoga": 120.0,
-    "phone_social_intel": 360.0,
+    "phone_social_intel": 120.0,
     "subfinder": 90.0,
     "amass": 120.0,
     "dnsrecon": 90.0,

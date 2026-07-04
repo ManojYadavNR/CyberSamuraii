@@ -4,6 +4,7 @@ import {
   hasPhoneIntel,
   parseSeedPhone,
   phoneMetadataFromResult,
+  phonePaymentProfilesFromResult,
   phoneRegistrationsFromResult,
   phoneSocialLinksFromResult,
   phoneToolStatuses,
@@ -31,11 +32,12 @@ export function PhoneIntelPanel() {
     [result, seedPhone],
   );
   const socialLinks = useMemo(() => phoneSocialLinksFromResult(result), [result]);
+  const paymentProfiles = useMemo(() => phonePaymentProfilesFromResult(result), [result]);
   const webHits = useMemo(() => phoneWebHitsFromResult(result), [result]);
   const toolStatuses = useMemo(() => phoneToolStatuses(result), [result]);
 
   const hasContent = Boolean(
-    metadata || registrations.length > 0 || socialLinks.length > 0 || webHits.length > 0,
+    metadata || registrations.length > 0 || socialLinks.length > 0 || paymentProfiles.length > 0 || webHits.length > 0,
   );
 
   if (!show) return null;
@@ -185,6 +187,51 @@ export function PhoneIntelPanel() {
                     </a>
                   )}
                   <p className="mt-1 text-[10px] text-slate-500">{reg.source}{reg.method ? ` · ${reg.method}` : ''}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {paymentProfiles.length > 0 && (
+          <div>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              UPI & payment apps ({paymentProfiles.length})
+            </h3>
+            <p className="mb-3 text-xs text-slate-500">
+              PhonePe, Paytm, Google Pay UPI IDs and PayPal web mentions. Verified names require Razorpay/PayU keys in .env.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {paymentProfiles.map((pay) => (
+                <div
+                  key={pay.id}
+                  className={`rounded-lg border px-3 py-2.5 ${
+                    pay.status === 'verified' || pay.status === 'name'
+                      ? 'border-amber-500/30 bg-amber-500/5'
+                      : 'border-slate-800 bg-slate-900/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-slate-200">{pay.appLabel}</span>
+                    <Badge variant={pay.status === 'verified' || pay.status === 'name' ? 'success' : 'muted'}>
+                      {pay.status === 'name' ? 'Account name' : pay.status === 'verified' ? 'Verified UPI' : pay.status === 'web_mention' ? 'Web mention' : 'Likely UPI'}
+                    </Badge>
+                  </div>
+                  {pay.displayName && (
+                    <p className="mt-1 text-sm font-semibold text-amber-200">{pay.displayName}</p>
+                  )}
+                  {pay.vpa && (
+                    <p className="mt-1 font-mono text-xs text-cyan-300">{pay.vpa}</p>
+                  )}
+                  {pay.pspLabel && pay.status !== 'web_mention' && (
+                    <p className="mt-1 text-[11px] text-slate-500">{pay.pspLabel}</p>
+                  )}
+                  {pay.url && pay.url.startsWith('http') && (
+                    <a href={pay.url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-[11px] text-cyan-400 hover:underline">
+                      {openLinkLabel(pay.url)}
+                    </a>
+                  )}
+                  {pay.note && <p className="mt-1 text-[10px] text-slate-500">{pay.note}</p>}
                 </div>
               ))}
             </div>

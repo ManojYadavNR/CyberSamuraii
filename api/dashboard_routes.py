@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from api.deps import client_ip, get_current_user, require_permission
 from schemas.dashboard import CopilotRequest, ExportRequest, InvestigateRequest, ReviewRequest
 from schemas.discovery import DiscoveryConfig
-from services.copilot import answer_copilot_async, stream_copilot_events
+from services.copilot import answer_copilot_async, get_copilot_opening_summary, stream_copilot_events
 from services.enterprise.audit import log_audit
 from services.enterprise.cases import link_investigation
 from services.enterprise.db import enterprise_enabled
@@ -104,11 +104,12 @@ async def cancel_running_investigation(user=Depends(require_permission("start_in
 
 @router.post("/copilot/prewarm")
 async def copilot_prewarm(user=Depends(require_permission("view_investigations"))):
-    from services.copilot_llm import copilot_model, ollama_available, prewarm_copilot_model
+    from services.copilot_llm import copilot_model, copilot_provider, llm_available, prewarm_copilot_model
 
-    online = await ollama_available()
+    online = await llm_available()
     warmed = await prewarm_copilot_model(force=True) if online else False
     return {
+        "provider": copilot_provider(),
         "ollama_online": online,
         "model": copilot_model(),
         "warmed": warmed,
@@ -117,38 +118,91 @@ async def copilot_prewarm(user=Depends(require_permission("view_investigations")
 
 @router.get("/copilot/status")
 async def copilot_status(user=Depends(require_permission("view_investigations"))):
-    from services.copilot_llm import copilot_model, ollama_available
+    from services.copilot_llm import copilot_model, copilot_provider, llm_available
 
-    online = await ollama_available()
-    return {
-        "ollama_online": online,
-        "model": copilot_model(),
-        "auto_start": False,
-        "hint": (
+    online = await llm_available()
+    provider = copilot_provider()
+    if provider == "xai":
+        hint = (
+            "Grok is ready via xAI API"
+            if online
+            else "Set XAI_API_KEY in .env and COPILOT_PROVIDER=xai, then restart backend"
+        )
+    elif provider == "gemini":
+        hint = (
+            "Gemini is ready via Google AI"
+            if online
+            else "Set GEMINI_API_KEY in .env and COPILOT_PROVIDER=gemini, then restart backend"
+        )
+    else:
+        hint = (
             "Ollama does not auto-start. Run once in a terminal: ollama serve"
             if not online
             else f"{copilot_model()} is ready"
-        ),
+        )
+    return {
+        "provider": provider,
+        "ollama_online": online,
+        "model": copilot_model(),
+        "auto_start": False,
+        "hint": hint,
     }
 
 
 def _copilot_context_from_request(request: CopilotRequest) -> dict:
-    """Build copilot context — prefers case-wide scope when case_id is present."""
+    """Build copilot context — scoped to the requested case only."""
+    from services.copilot_context import investigation_linked_to_case
+
     context = dict(request.context or {})
     if request.case_id:
         context["case_id"] = request.case_id
     if request.investigation_id:
-        context["investigation_id"] = request.investigation_id
-        inv = get_investigation(request.investigation_id)
-        if inv and inv.get("result"):
-            context.setdefault("result", inv["result"])
-            context.setdefault("query", inv.get("query", ""))
-        # Recover case_id from the investigation record when the client omitted it.
-        if not context.get("case_id") and inv:
-            linked_case = inv.get("case_id") or (inv.get("result") or {}).get("case_id")
-            if linked_case:
-                context["case_id"] = linked_case
+        inv_id = request.investigation_id
+        # Drop investigation scope if it belongs to a different case than the active one.
+        if context.get("case_id") and not investigation_linked_to_case(context["case_id"], inv_id):
+            inv_id = ""
+        else:
+            context["investigation_id"] = inv_id
+            inv = get_investigation(inv_id)
+            if inv and inv.get("result"):
+                context.setdefault("result", inv["result"])
+                context.setdefault("query", inv.get("query", ""))
+            if not context.get("case_id") and inv:
+                linked_case = inv.get("case_id") or (inv.get("result") or {}).get("case_id")
+                if linked_case:
+                    context["case_id"] = linked_case
     return context
+
+
+@router.get("/copilot/summary")
+async def copilot_opening_summary(
+    case_id: str = "",
+    investigation_id: str = "",
+    user=Depends(require_permission("view_investigations")),
+):
+    """Verified-only opening summary — cross-checked rule engine, no LLM."""
+    from services.copilot_context import investigation_linked_to_case
+
+    context: dict = {}
+    if case_id:
+        context["case_id"] = case_id
+    if investigation_id:
+        if context.get("case_id") and not investigation_linked_to_case(context["case_id"], investigation_id):
+            investigation_id = ""
+        if investigation_id:
+            context["investigation_id"] = investigation_id
+            inv = get_investigation(investigation_id)
+            if inv and inv.get("result"):
+                context["result"] = inv["result"]
+                context["query"] = inv.get("query", "")
+            if not context.get("case_id") and inv:
+                linked = inv.get("case_id") or (inv.get("result") or {}).get("case_id")
+                if linked:
+                    context["case_id"] = linked
+    if not context.get("case_id") and not context.get("result"):
+        raise HTTPException(status_code=400, detail="case_id or investigation_id required")
+    summary = await get_copilot_opening_summary(context)
+    return summary
 
 
 @router.post("/copilot")

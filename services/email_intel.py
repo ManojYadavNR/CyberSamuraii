@@ -44,6 +44,12 @@ def is_consumer_mail(email: str) -> bool:
     return email_domain(email) in CONSUMER_MAIL_DOMAINS
 
 
+def email_local_part(email: str) -> str:
+    """Username handle derived from an email local-part."""
+    local = email.split("@", 1)[0].strip()
+    return local if len(local) >= 3 else email.strip()
+
+
 async def fetch_gravatar_profile(email: str) -> dict[str, Any] | None:
     """Public Gravatar profile tied to an email hash (no API key)."""
     digest = hashlib.md5(email.strip().lower().encode()).hexdigest()
@@ -98,6 +104,26 @@ def _confirmed_from_holehe(item: dict[str, Any]) -> dict[str, Any]:
         if item.get(key):
             finding[key] = item[key]
     return finding
+
+
+def _confirmed_from_username_probe(item: dict[str, Any], *, email: str, source_tool: str) -> dict[str, Any] | None:
+    url = str(item.get("url") or "").strip()
+    if not url:
+        return None
+    platform = str(item.get("platform") or "unknown")
+    username = item.get("username") or email_local_part(email)
+    return {
+        "type": "linked_account",
+        "platform": platform,
+        "username": username,
+        "email": email,
+        "url": url,
+        "profile_url": url,
+        "confidence": "public",
+        "source_tool": source_tool,
+        "check_type": item.get("check_type") or "username_probe",
+        "verified": item.get("verified"),
+    }
 
 
 def _lead_from_holehe(item: dict[str, Any]) -> dict[str, Any]:
@@ -267,6 +293,22 @@ def build_email_investigation(
                 ),
             }
 
+        elif result.tool in ("maigret", "blackbird", "sherlock"):
+            profile_rows = [
+                item
+                for item in result.data
+                if item.get("url") and item.get("platform") not in ("_scan_summary",)
+            ]
+            for item in profile_rows:
+                row = _confirmed_from_username_probe(item, email=query, source_tool=result.tool)
+                if row:
+                    confirmed.append(row)
+            scan_summary[result.tool] = {
+                "status": "completed",
+                "profiles": len(profile_rows),
+                "note": f"Username probe on {email_local_part(query)}",
+            }
+
     public_data = list(public_profiles)
     from services.email_profile_resolver import build_profile_url
 
@@ -292,7 +334,7 @@ def build_email_investigation(
     seen: set[str] = set()
     deduped_confirmed: list[dict[str, Any]] = []
     for item in confirmed:
-        key = f"{item.get('platform')}:{item.get('email', '')}:{item.get('username', '')}"
+        key = f"{item.get('platform')}:{item.get('email', '')}:{item.get('username', '')}:{item.get('url', '')}"
         if key in seen:
             continue
         seen.add(key)

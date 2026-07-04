@@ -111,11 +111,35 @@ export async function submitReview(payload: {
   return apiFetch('/api/dashboard/review', { method: 'POST', body: JSON.stringify(payload) });
 }
 
-export async function prewarmCopilot(): Promise<{ ollama_online: boolean; model: string; warmed: boolean }> {
+export async function prewarmCopilot(): Promise<{
+  provider?: string;
+  ollama_online: boolean;
+  model: string;
+  warmed: boolean;
+}> {
   return apiFetch('/api/dashboard/copilot/prewarm', { method: 'POST' });
 }
 
+export async function fetchCopilotSummary(params: {
+  case_id?: string;
+  investigation_id?: string;
+}): Promise<{
+  summary_markdown: string;
+  verified_count: number;
+  excluded_unverified_leads?: number;
+  scope?: string;
+  case_number?: string;
+  title?: string;
+  investigation_count?: number;
+}> {
+  const q = new URLSearchParams();
+  if (params.case_id) q.set('case_id', params.case_id);
+  if (params.investigation_id) q.set('investigation_id', params.investigation_id);
+  return apiFetch(`/api/dashboard/copilot/summary?${q.toString()}`);
+}
+
 export async function fetchCopilotStatus(): Promise<{
+  provider?: string;
   ollama_online: boolean;
   model: string;
   auto_start: boolean;

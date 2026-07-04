@@ -310,6 +310,10 @@ class GoogleDorkingAdapter(BaseAdapter):
 
         import re
 
+        text_blob = f"{title} {snippet}".lower()
+        if email_lower not in text_blob and email_lower.split("@", 1)[0] not in text_blob:
+            return
+
         for handle in re.findall(r"@([\w.-]{3,30})\b", f"{title} {snippet}"):
             if handle.lower() in email_lower:
                 continue
@@ -339,7 +343,7 @@ class GoogleDorkingAdapter(BaseAdapter):
         query_type = detect_query_type(query)
         self._last_query = query
         self._last_query_type = query_type
-        max_queries = 14 if query_type == "email" else (6 if query_type == "phone" else 28)
+        max_queries = 20 if query_type == "email" else (6 if query_type == "phone" else 28)
         base_dorks = build_dork_queries(query, query_type, max_queries=max_queries)
         if not base_dorks:
             return ToolResult(tool=self.name, success=False, error="No dork queries generated")

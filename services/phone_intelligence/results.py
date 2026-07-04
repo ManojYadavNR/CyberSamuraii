@@ -19,6 +19,8 @@ def _summary_row(number_info: dict[str, Any], social: dict[str, Any]) -> dict[st
         "possible_links": summary.get("possible_links", 0),
         "profiles_with_url": summary.get("profiles_with_url", 0),
         "whatsapp_registered": summary.get("whatsapp_registered"),
+        "verified_upi_count": summary.get("verified_upi_count", 0),
+        "upi_names_found": summary.get("upi_names_found", 0),
     }
 
 
@@ -165,6 +167,66 @@ def rows_from_social_intel(
                 "source_tool": source_tool,
             })
 
+    payment = social.get("payment_intel") or {}
+    for vpa in payment.get("verified_vpas") or []:
+        rows.append({
+            "platform": str(vpa.get("app") or "upi"),
+            "phone": phone,
+            "url": vpa.get("deep_link"),
+            "username": vpa.get("vpa"),
+            "display_name": vpa.get("customer_name"),
+            "status": "verified",
+            "verified": True,
+            "registered": True,
+            "check_type": "upi_vpa",
+            "confidence": "high",
+            "psp_label": vpa.get("psp_label"),
+            "evidence": f"Verified UPI — {vpa.get('psp_label', 'UPI')}",
+            "source_tool": "payment_lookup",
+        })
+    for vpa in (payment.get("candidate_vpas") or [])[:8]:
+        if vpa.get("verified"):
+            continue
+        rows.append({
+            "platform": str(vpa.get("app") or "upi"),
+            "phone": phone,
+            "url": vpa.get("deep_link"),
+            "username": vpa.get("vpa"),
+            "status": "candidate",
+            "verified": False,
+            "registered": False,
+            "check_type": "upi_vpa",
+            "confidence": "low",
+            "psp_label": vpa.get("psp_label"),
+            "note": "Likely UPI handle — add Razorpay/PayU keys to verify and fetch registered name",
+            "source_tool": "payment_lookup",
+        })
+    if payment.get("primary_name"):
+        rows.append({
+            "platform": "upi",
+            "phone": phone,
+            "username": payment.get("primary_name"),
+            "display_name": payment.get("primary_name"),
+            "status": "identified",
+            "verified": True,
+            "check_type": "upi_account_name",
+            "confidence": "high",
+            "source_tool": "payment_lookup",
+        })
+    for hit in payment.get("paypal_mentions") or []:
+        rows.append({
+            "platform": "paypal",
+            "phone": phone,
+            "url": hit.get("url"),
+            "title": hit.get("title"),
+            "snippet": hit.get("snippet"),
+            "status": "web_mention",
+            "verified": False,
+            "check_type": "payment_web_search",
+            "confidence": "medium",
+            "source_tool": "payment_lookup",
+        })
+
     return rows
 
 
@@ -215,6 +277,8 @@ def rows_from_local(local: dict[str, Any], phone: str) -> list[dict[str, Any]]:
 def rows_from_web_footprint(web: dict[str, Any] | None, phone: str) -> list[dict[str, Any]]:
     if not web:
         return []
+    from services.google_dorking.filters import phone_dork_hit_displayable
+
     rows: list[dict[str, Any]] = []
     for category, block in (web.get("categories") or {}).items():
         if not isinstance(block, dict):
@@ -222,7 +286,16 @@ def rows_from_web_footprint(web: dict[str, Any] | None, phone: str) -> list[dict
         for search in block.get("searches") or []:
             for hit in search.get("results") or []:
                 url = hit.get("url")
+                title = hit.get("title") or ""
+                snippet = hit.get("snippet") or ""
                 if not url:
+                    continue
+                if not phone_dork_hit_displayable(
+                    url=url,
+                    title=title,
+                    snippet=snippet,
+                    seed_query=str(phone),
+                ):
                     continue
                 rows.append({
                     "platform": search.get("site") or category,

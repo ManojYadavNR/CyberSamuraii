@@ -59,6 +59,18 @@ export interface PhoneWebHit {
   source: string;
 }
 
+export interface PhonePaymentProfile {
+  id: string;
+  app: string;
+  appLabel: string;
+  vpa?: string;
+  displayName?: string;
+  status: 'verified' | 'candidate' | 'name' | 'web_mention';
+  url?: string;
+  pspLabel?: string;
+  note?: string;
+}
+
 export interface PhoneToolStatus {
   tool: string;
   label: string;
@@ -226,6 +238,57 @@ export function phoneWebHitsFromResult(result: InvestigationResult | null): Phon
   return out.slice(0, 40);
 }
 
+const PAYMENT_APP_LABELS: Record<string, string> = {
+  phonepe: 'PhonePe',
+  paytm: 'Paytm',
+  google_pay: 'Google Pay',
+  upi: 'UPI',
+  paypal: 'PayPal',
+  amazon_pay: 'Amazon Pay',
+  bhim: 'BHIM',
+};
+
+export function phonePaymentProfilesFromResult(result: InvestigationResult | null): PhonePaymentProfile[] {
+  if (!result) return [];
+  const out: PhonePaymentProfile[] = [];
+  const seen = new Set<string>();
+
+  for (const tool of ['phone_social_intel', 'phoneinfoga']) {
+    for (const item of toolRows(result, tool)) {
+      const checkType = String(item.check_type ?? '');
+      if (!['upi_vpa', 'upi_account_name', 'payment_web_search'].includes(checkType)) continue;
+      const app = String(item.platform ?? 'upi');
+      const vpa = item.username ? String(item.username) : undefined;
+      const displayName = pickText(item.display_name, item.customer_name);
+      const key = `${app}:${vpa ?? displayName ?? item.url ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      let status: PhonePaymentProfile['status'] = 'candidate';
+      if (checkType === 'upi_account_name') status = 'name';
+      else if (item.status === 'verified' || item.verified === true) status = 'verified';
+      else if (checkType === 'payment_web_search') status = 'web_mention';
+
+      out.push({
+        id: `${tool}_${key}`,
+        app,
+        appLabel: PAYMENT_APP_LABELS[app] ?? platformLabel(app),
+        vpa: vpa && vpa.includes('@') ? vpa : undefined,
+        displayName: displayName || (vpa && !vpa.includes('@') ? vpa : undefined),
+        status,
+        url: item.url ? String(item.url) : undefined,
+        pspLabel: item.psp_label ? String(item.psp_label) : undefined,
+        note: item.note ? String(item.note) : undefined,
+      });
+    }
+  }
+
+  return out.sort((a, b) => {
+    const order = { verified: 0, name: 1, web_mention: 2, candidate: 3 };
+    return order[a.status] - order[b.status];
+  });
+}
+
 export function phoneNumbersFromToolResults(result: InvestigationResult | null): {
   id: string;
   label: string;
@@ -305,7 +368,13 @@ export function phoneToolStatuses(result: InvestigationResult | null): PhoneTool
     if (tool === 'phone_social_intel') {
       const reg = phoneRegistrationsFromResult(result).filter((r) => r.source === 'phone_social_intel' || r.source === 'ignorant');
       const links = phoneSocialLinksFromResult(result);
-      detail = `${Number(summary?.confirmed_links ?? summary?.registered_accounts_found ?? reg.length)} social link(s) · ${links.length} profile hit(s)`;
+      const payments = phonePaymentProfilesFromResult(result);
+      const verifiedUpi = payments.filter((p) => p.status === 'verified' || p.status === 'name').length;
+      detail = [
+        `${Number(summary?.confirmed_links ?? summary?.registered_accounts_found ?? reg.length)} social link(s)`,
+        payments.length > 0 && `${payments.length} payment/UPI item(s)${verifiedUpi ? ` · ${verifiedUpi} verified` : ''}`,
+        links.length > 0 && `${links.length} profile hit(s)`,
+      ].filter(Boolean).join(' · ') || `${rows.length} finding(s)`;
       if (tr.error) detail = tr.error;
     } else if (tool === 'phoneinfoga') {
       const meta = phoneMetadataFromResult(result, result.query);

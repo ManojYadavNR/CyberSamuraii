@@ -295,6 +295,77 @@ export interface SamuraiComment {
   text?: string;
   like_count?: number;
   timestamp?: string;
+  profile_url?: string;
+  comment_url?: string;
+  replies_count?: number;
+  replies?: SamuraiComment[];
+}
+
+/** Build a canonical Instagram post/reel URL for Apify scraping. */
+export function buildIgPostUrl(
+  opts: { url?: string; shortcode?: string; isReel?: boolean },
+): string | undefined {
+  const direct = String(opts.url || '').trim();
+  if (direct && /instagram\.com\/(?:p|reel|tv)\//i.test(direct)) {
+    return direct.replace(/\/?$/, '/');
+  }
+  const code = String(opts.shortcode || '').trim();
+  if (!code) return undefined;
+  const segment = opts.isReel ? 'reel' : 'p';
+  return `https://www.instagram.com/${segment}/${code}/`;
+}
+
+/** Collect post/reel URLs from Samurai media for batch comment analysis. */
+export function collectIgPostUrls(
+  posts: Record<string, unknown>[],
+  reels: Record<string, unknown>[] = [],
+  max = 10,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (item: Record<string, unknown>) => {
+    const isReel = Boolean(item.is_video) || item.type === 'Reel' || item.type === 'Video';
+    const visit = pickMediaUrl(item.live_url as string, item.url as string);
+    const url = buildIgPostUrl({
+      url: visit,
+      shortcode: item.shortcode as string | undefined,
+      isReel,
+    });
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    out.push(url);
+  };
+  for (const item of reels) {
+    if (out.length >= max) break;
+    add(item);
+  }
+  for (const item of posts) {
+    if (out.length >= max) break;
+    add(item);
+  }
+  return out;
+}
+
+export function mapApifyComments(raw: unknown): SamuraiComment[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((c) => c && typeof c === 'object')
+    .map((c) => {
+      const row = c as Record<string, unknown>;
+      const repliesRaw = row.replies;
+      const replies = Array.isArray(repliesRaw) ? mapApifyComments(repliesRaw) : [];
+      return {
+        username: row.username as string | undefined,
+        text: String(row.text || '').trim(),
+        like_count: row.like_count as number | undefined,
+        timestamp: row.timestamp as string | undefined,
+        profile_url: row.profile_url as string | undefined,
+        comment_url: row.comment_url as string | undefined,
+        replies_count: (row.replies_count as number | undefined) ?? (replies.length || undefined),
+        replies,
+      };
+    })
+    .filter((c) => c.text || c.username);
 }
 
 export function resolveIgBiography(
@@ -352,6 +423,10 @@ export function normalizeComments(raw: unknown): SamuraiComment[] {
         text: String(row.text || row.message || row.body || '').trim(),
         like_count: row.like_count as number | undefined,
         timestamp: row.timestamp as string | undefined,
+        profile_url: row.profile_url as string | undefined,
+        comment_url: row.comment_url as string | undefined,
+        replies_count: row.replies_count as number | undefined,
+        replies: Array.isArray(row.replies) ? normalizeComments(row.replies) : undefined,
       };
     })
     .filter((c) => c.text || c.username);
