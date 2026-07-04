@@ -1,85 +1,117 @@
 {
-  "default_password": "Socmint@Demo2026!",
+  "password_template": "Socmint@CID2026!Admin",
+  "purge_legacy_usernames": [
+    "cid_director",
+    "sp_officer",
+    "dsp_officer",
+    "inspector1",
+    "sub_inspector1",
+    "analyst1",
+    "intel_officer",
+    "forensics_officer",
+    "viewer1",
+    "auditor1"
+  ],
   "users": [
     {
-      "username": "cid_director",
-      "name": "CID Director",
-      "email": "director@socmint.local",
-      "role": "CID_DIRECTOR",
-      "department": "CID",
-      "designation": "Director"
+      "username": "dgp",
+      "name": "Director General",
+      "email": "dgp@agency.local",
+      "role": "DGP",
+      "rank_code": "DGP",
+      "agency_code": "HQ",
+      "department": "Headquarters",
+      "designation": "Director General of Police"
     },
     {
-      "username": "sp_officer",
-      "name": "SP Officer",
-      "email": "sp@socmint.local",
+      "username": "adgp",
+      "name": "Additional DGP",
+      "email": "adgp@agency.local",
+      "role": "ADGP",
+      "rank_code": "ADGP",
+      "agency_code": "HQ",
+      "department": "Headquarters",
+      "designation": "Additional Director General"
+    },
+    {
+      "username": "igp",
+      "name": "Inspector General",
+      "email": "igp@agency.local",
+      "role": "IGP",
+      "rank_code": "IGP",
+      "agency_code": "HQ",
+      "department": "Headquarters",
+      "designation": "Inspector General of Police"
+    },
+    {
+      "username": "dig",
+      "name": "Deputy Inspector General",
+      "email": "dig@agency.local",
+      "role": "DIG",
+      "rank_code": "DIG",
+      "agency_code": "HQ",
+      "department": "Headquarters",
+      "designation": "Deputy Inspector General"
+    },
+    {
+      "username": "sp",
+      "name": "Superintendent",
+      "email": "sp@agency.local",
       "role": "SP",
-      "department": "CID",
+      "rank_code": "SP",
+      "agency_code": "HQ",
+      "department": "Investigations",
       "designation": "Superintendent of Police"
     },
     {
-      "username": "dsp_officer",
-      "name": "DSP Officer",
-      "email": "dsp@socmint.local",
+      "username": "dsp",
+      "name": "Deputy Superintendent",
+      "email": "dsp@agency.local",
       "role": "DSP",
-      "department": "CID",
-      "designation": "Deputy Superintendent"
+      "rank_code": "DSP",
+      "agency_code": "HQ",
+      "department": "Investigations",
+      "designation": "Deputy Superintendent of Police"
     },
     {
-      "username": "inspector1",
-      "name": "Inspector One",
-      "email": "inspector@socmint.local",
-      "role": "INSPECTOR",
-      "department": "CID",
-      "designation": "Inspector"
+      "username": "pi",
+      "name": "Police Inspector",
+      "email": "pi@agency.local",
+      "role": "PI",
+      "rank_code": "PI",
+      "agency_code": "HQ",
+      "department": "Investigations",
+      "designation": "Police Inspector"
     },
     {
-      "username": "sub_inspector1",
-      "name": "Sub Inspector One",
-      "email": "subinspector@socmint.local",
-      "role": "SUB_INSPECTOR",
-      "department": "CID",
-      "designation": "Sub Inspector"
+      "username": "psi",
+      "name": "Police Sub-Inspector",
+      "email": "psi@agency.local",
+      "role": "PSI",
+      "rank_code": "PSI",
+      "agency_code": "HQ",
+      "department": "Investigations",
+      "designation": "Police Sub-Inspector"
     },
     {
-      "username": "analyst1",
-      "name": "Analyst One",
-      "email": "analyst@socmint.local",
-      "role": "ANALYST",
-      "department": "Cyber Cell",
-      "designation": "OSINT Analyst"
+      "username": "hc",
+      "name": "Head Constable",
+      "email": "hc@agency.local",
+      "role": "HC",
+      "rank_code": "HC",
+      "agency_code": "CYBER",
+      "department": "Field Operations",
+      "designation": "Head Constable"
     },
     {
-      "username": "intel_officer",
-      "name": "Intelligence Officer",
-      "email": "intel@socmint.local",
-      "role": "INTELLIGENCE_OFFICER",
-      "department": "Intelligence",
-      "designation": "Intelligence Officer"
-    },
-    {
-      "username": "forensics_officer",
-      "name": "Forensics Officer",
-      "email": "forensics@socmint.local",
-      "role": "FORENSICS_OFFICER",
-      "department": "Forensics",
-      "designation": "Digital Forensics Officer"
-    },
-    {
-      "username": "viewer1",
-      "name": "Read Only Viewer",
-      "email": "viewer@socmint.local",
-      "role": "VIEWER",
-      "department": "CID",
-      "designation": "Viewer"
-    },
-    {
-      "username": "auditor1",
-      "name": "Compliance Auditor",
-      "email": "auditor@socmint.local",
-      "role": "AUDITOR",
-      "department": "Audit",
-      "designation": "Auditor"
+      "username": "pc",
+      "name": "Police Constable",
+      "email": "pc@agency.local",
+      "role": "PC",
+      "rank_code": "PC",
+      "agency_code": "CYBER",
+      "department": "Field Operations",
+      "designation": "Police Constable"
     }
   ]
 }

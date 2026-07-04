@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
+import re
 
 from api.deps import CurrentUser, get_optional_user, require_permission
 from orchestrator.engine import orchestrator
@@ -145,6 +146,22 @@ async def proxy_external_media(url: str = Query(...), user=Depends(_media_access
     raise HTTPException(status_code=400, detail="remote response is not displayable media")
 
 
+def _lookaside_proxy_candidates(url: str) -> list[str]:
+    """Facebook lookaside often serves HTML for full-size URLs — try thumbnail first."""
+    low = url.lower()
+    if "lookaside.fbsbx.com" not in low:
+        return [url]
+    candidates = [url]
+    if "get_thumbnail=1" not in low:
+        sep = "&" if "?" in url else "?"
+        candidates.insert(0, f"{url}{sep}get_thumbnail=1")
+    else:
+        full = re.sub(r"[?&]get_thumbnail=1", "", url).rstrip("?&")
+        if full and full not in candidates:
+            candidates.append(full)
+    return candidates
+
+
 @router.get("/image-proxy")
 async def proxy_external_image(url: str = Query(...), user=Depends(_media_access)):
     """Proxy hotlinked profile/post images — supports ?token= for <img> tags."""
@@ -158,17 +175,25 @@ async def proxy_external_image(url: str = Query(...), user=Depends(_media_access
     if not is_image_url(url) or is_branding_image_url(url):
         raise HTTPException(status_code=400, detail="url is not a displayable image")
 
+    last_error: Exception | None = None
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=12.0) as client:
-            response = await client.get(url, headers=proxy_fetch_headers(url))
-            response.raise_for_status()
+            for try_url in _lookaside_proxy_candidates(url):
+                try:
+                    response = await client.get(try_url, headers=proxy_fetch_headers(try_url))
+                    response.raise_for_status()
+                except httpx.HTTPError as exc:
+                    last_error = exc
+                    continue
+                content_type = response.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+                if content_type.startswith("image/"):
+                    return Response(content=response.content, media_type=content_type)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="image fetch failed") from exc
 
-    content_type = response.headers.get("content-type", "image/jpeg").split(";")[0].strip()
-    if not content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="remote response is not an image")
-    return Response(content=response.content, media_type=content_type)
+    if last_error:
+        raise HTTPException(status_code=502, detail="image fetch failed") from last_error
+    raise HTTPException(status_code=400, detail="remote response is not an image")
 
 
 @router.post("/image")

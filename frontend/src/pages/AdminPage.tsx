@@ -24,11 +24,11 @@ import { AuditActivityFeed } from '../components/admin/AuditActivityFeed';
 import { OrganizationPanel, PlaceholderCards } from '../components/admin/OrganizationPanel';
 import { RolePermissionsPanel } from '../components/admin/RolePermissionsPanel';
 import { UserDetailModal } from '../components/admin/UserDetailModal';
-import { exportUsersCsv, sessionsFromAudit } from '../components/admin/iamHelpers';
+import { exportUsersCsv, sessionsFromAudit, supervisorRolesFromConfig, adminRolesFromConfig } from '../components/admin/iamHelpers';
 import type { IamSection, IamUser } from '../components/admin/iamTypes';
 
-const SUPERVISOR_ROLES = new Set(['SP', 'DSP', 'INSPECTOR', 'CID_DIRECTOR', 'SUPER_ADMIN']);
-const ADMIN_ROLES = new Set(['SUPER_ADMIN', 'CID_DIRECTOR']);
+const SUPERVISOR_ROLES = supervisorRolesFromConfig();
+const ADMIN_ROLES = adminRolesFromConfig();
 
 function normalizeUser(raw: Record<string, unknown>): IamUser {
   return {
@@ -37,6 +37,7 @@ function normalizeUser(raw: Record<string, unknown>): IamUser {
     name: String(raw.name || ''),
     email: String(raw.email || ''),
     role: String(raw.role || ''),
+    rank_code: String(raw.rank_code || raw.role || ''),
     department: String(raw.department || ''),
     designation: String(raw.designation || ''),
     employee_id: String(raw.employee_id || ''),

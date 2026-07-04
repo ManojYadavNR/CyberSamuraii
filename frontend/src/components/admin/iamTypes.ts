@@ -4,6 +4,11 @@ export interface IamUser {
   name: string;
   email: string;
   role: string;
+  rank_code?: string;
+  agency_code?: string;
+  unit?: string;
+  district?: string;
+  supervisor_id?: string;
   department: string;
   designation: string;
   employee_id: string;
@@ -49,7 +54,7 @@ export const DEFAULT_CREATE_USER: CreateUserFormState = {
   district: '',
   unit: '',
   supervisor: '',
-  role: 'ANALYST',
+  role: 'PSI',
   forcePasswordChange: true,
   requireMfa: false,
 };

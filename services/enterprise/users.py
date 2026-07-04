@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -22,14 +23,23 @@ from services.enterprise.password_policy import assert_strong_password, validate
 
 
 def _user_public(row) -> dict[str, Any]:
+    from services.enterprise.rbac import normalize_role, resolve_rank
+
+    rank = getattr(row, "rank_code", "") or resolve_rank(row.role or "")
+    role = normalize_role(row.role or "")
     return {
         "user_id": row.user_id,
         "username": row.username,
         "name": row.name,
         "email": row.email,
-        "role": row.role,
+        "role": role,
         "department": row.department or "",
         "designation": row.designation or "",
+        "rank_code": rank,
+        "agency_code": getattr(row, "agency_code", "") or "",
+        "unit": getattr(row, "unit", "") or "",
+        "district": getattr(row, "district", "") or "",
+        "supervisor_id": getattr(row, "supervisor_id", "") or "",
         "employee_id": getattr(row, "employee_id", "") or "",
         "badge_number": getattr(row, "badge_number", "") or "",
         "active": bool(row.active),
@@ -298,6 +308,11 @@ def create_user(
     role: str,
     department: str = "",
     designation: str = "",
+    rank_code: str = "",
+    agency_code: str = "",
+    unit: str = "",
+    district: str = "",
+    supervisor_id: str = "",
     employee_id: str = "",
     badge_number: str = "",
     actor_id: str = "",
@@ -310,11 +325,12 @@ def create_user(
         raise RuntimeError("Database unavailable")
     try:
         from services.enterprise.db import _MODELS
-        from services.enterprise.rbac import all_roles
+        from services.enterprise.rbac import all_roles, normalize_role, resolve_rank
 
         User = _MODELS["User"]
         uname = username.strip().lower()
-        if role not in all_roles():
+        normalized_role = normalize_role(role)
+        if normalized_role not in all_roles():
             raise ValueError(f"Invalid role: {role}")
         if not skip_password_policy:
             assert_strong_password(password, username=uname)
@@ -326,15 +342,21 @@ def create_user(
         emp = employee_id.strip() or preview["employee_id"]
         badge = badge_number.strip() or preview["badge_number"]
         emp, badge = _ensure_unique_ids(session, User, employee_id=emp, badge_number=badge)
+        rank = rank_code.strip() or resolve_rank(normalized_role)
         row = User(
             user_id=new_id(),
             username=uname,
             password_hash=hash_password(password),
             name=name.strip(),
             email=email.strip().lower(),
-            role=role,
+            role=normalized_role,
             department=department,
             designation=designation,
+            rank_code=rank,
+            agency_code=agency_code.strip(),
+            unit=unit.strip(),
+            district=district.strip(),
+            supervisor_id=supervisor_id.strip(),
             employee_id=emp,
             badge_number=badge,
             active=True,
@@ -370,6 +392,11 @@ def update_user(
     role: str | None = None,
     department: str | None = None,
     designation: str | None = None,
+    rank_code: str | None = None,
+    agency_code: str | None = None,
+    unit: str | None = None,
+    district: str | None = None,
+    supervisor_id: str | None = None,
     active: bool | None = None,
 ) -> dict[str, Any] | None:
     session = get_session()
@@ -377,7 +404,7 @@ def update_user(
         raise RuntimeError("Database unavailable")
     try:
         from services.enterprise.db import _MODELS
-        from services.enterprise.rbac import all_roles
+        from services.enterprise.rbac import all_roles, normalize_role, resolve_rank
 
         User = _MODELS["User"]
         row = session.query(User).filter_by(user_id=user_id).first()
@@ -396,16 +423,34 @@ def update_user(
             changes["email"] = row.email
             row.email = email_norm
         if role is not None:
-            if role not in all_roles():
+            normalized_role = normalize_role(role)
+            if normalized_role not in all_roles():
                 raise ValueError(f"Invalid role: {role}")
             changes["role"] = row.role
-            row.role = role
+            row.role = normalized_role
+            if rank_code is None:
+                row.rank_code = resolve_rank(normalized_role)
         if department is not None:
             changes["department"] = row.department
             row.department = department
         if designation is not None:
             changes["designation"] = row.designation
             row.designation = designation
+        if rank_code is not None:
+            changes["rank_code"] = row.rank_code
+            row.rank_code = rank_code.strip()
+        if agency_code is not None:
+            changes["agency_code"] = row.agency_code
+            row.agency_code = agency_code.strip()
+        if unit is not None:
+            changes["unit"] = row.unit
+            row.unit = unit.strip()
+        if district is not None:
+            changes["district"] = row.district
+            row.district = district.strip()
+        if supervisor_id is not None:
+            changes["supervisor_id"] = row.supervisor_id
+            row.supervisor_id = supervisor_id.strip()
         if active is not None:
             changes["active"] = row.active
             row.active = bool(active)
@@ -528,7 +573,7 @@ def seed_admin_user() -> None:
                 name=os.getenv("ADMIN_NAME", "System Administrator"),
                 email=os.getenv("ADMIN_EMAIL", f"{username}@socmint.local"),
                 role="SUPER_ADMIN",
-                department=os.getenv("ADMIN_DEPARTMENT", "CID"),
+                department=os.getenv("ADMIN_DEPARTMENT", "Headquarters"),
                 designation="Super Administrator",
                 active=True,
             )
@@ -540,8 +585,83 @@ def seed_admin_user() -> None:
         session.close()
 
 
+def migrate_legacy_user_roles() -> int:
+    """Migrate users with legacy role names to rank-based roles."""
+    from services.enterprise.rbac import legacy_role_map, normalize_role, resolve_rank
+
+    session = get_session()
+    if not session:
+        return 0
+    updated = 0
+    try:
+        from services.enterprise.db import _MODELS
+
+        User = _MODELS["User"]
+        legacy = legacy_role_map()
+        for row in session.query(User).all():
+            new_role = normalize_role(row.role or "")
+            new_rank = row.rank_code or resolve_rank(new_role)
+            if row.role in legacy or row.role != new_role or (not row.rank_code and new_rank):
+                row.role = new_role
+                row.rank_code = new_rank
+                updated += 1
+        if updated:
+            session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+    return updated
+
+
+def purge_legacy_demo_users() -> list[str]:
+    """Remove legacy demo accounts listed in config/demo_users.json."""
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "config" / "demo_users.json"
+    if not path.exists():
+        return []
+    with open(path) as f:
+        cfg = json.load(f)
+    usernames = {str(u).strip().lower() for u in cfg.get("purge_legacy_usernames", [])}
+    if not usernames:
+        return []
+    session = get_session()
+    if not session:
+        return []
+    removed: list[str] = []
+    try:
+        from services.enterprise.db import _MODELS
+
+        User = _MODELS["User"]
+        admin_name = os.getenv("ADMIN_USERNAME", "admin").strip().lower()
+        for row in session.query(User).filter(User.username.in_(usernames)).all():
+            if row.username == admin_name:
+                continue
+            removed.append(row.username)
+            session.delete(row)
+        if removed:
+            session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+    return removed
+
+
+def _demo_password_for_rank(rank: str, cfg: dict) -> str:
+    template = os.getenv(
+        "DEMO_USER_PASSWORD",
+        os.getenv("DEMO_USER_PASSWORD_TEMPLATE", cfg.get("password_template", "Socmint@CID2026!Admin")),
+    )
+    if "{rank}" in template:
+        return template.replace("{rank}", rank)
+    return template
+
+
 def seed_demo_users() -> list[str]:
-    """Seed one demo account per RBAC role (skips existing usernames)."""
+    """Seed one account per organizational rank; purge legacy demo users first."""
     import json
     import os
     from pathlib import Path
@@ -549,26 +669,55 @@ def seed_demo_users() -> list[str]:
     if os.getenv("SEED_DEMO_USERS", "true").lower() not in {"1", "true", "yes"}:
         return []
 
+    migrate_legacy_user_roles()
+    purge_legacy_demo_users()
+
     path = Path(__file__).resolve().parents[2] / "config" / "demo_users.json"
     if not path.exists():
         return []
     with open(path) as f:
         cfg = json.load(f)
-    default_password = os.getenv("DEMO_USER_PASSWORD", cfg.get("default_password", "Socmint@Demo2026!"))
     created: list[str] = []
     for spec in cfg.get("users", []):
         username = str(spec.get("username", "")).strip().lower()
-        if not username or get_user_by_username(username):
+        role = str(spec.get("role", "")).strip()
+        if not username or not role:
+            continue
+        password = _demo_password_for_rank(role, cfg)
+        existing = get_user_by_username(username)
+        if existing:
+            session = get_session()
+            if session:
+                try:
+                    from services.enterprise.db import _MODELS
+
+                    row = session.query(_MODELS["User"]).filter_by(username=username).first()
+                    if row:
+                        row.role = role
+                        row.rank_code = str(spec.get("rank_code", role))
+                        row.password_hash = hash_password(password)
+                        row.name = str(spec.get("name", username))
+                        row.email = str(spec.get("email", f"{username}@agency.local"))
+                        row.department = str(spec.get("department", ""))
+                        row.designation = str(spec.get("designation", ""))
+                        row.agency_code = str(spec.get("agency_code", ""))
+                        session.commit()
+                except Exception:
+                    session.rollback()
+                finally:
+                    session.close()
             continue
         try:
             create_user(
                 username=username,
-                password=default_password,
+                password=password,
                 name=str(spec.get("name", username)),
-                email=str(spec.get("email", f"{username}@socmint.local")),
-                role=str(spec.get("role", "ANALYST")),
+                email=str(spec.get("email", f"{username}@agency.local")),
+                role=role,
                 department=str(spec.get("department", "")),
                 designation=str(spec.get("designation", "")),
+                rank_code=str(spec.get("rank_code", role)),
+                agency_code=str(spec.get("agency_code", "")),
                 skip_password_policy=True,
             )
             created.append(username)

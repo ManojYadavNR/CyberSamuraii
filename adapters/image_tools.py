@@ -47,7 +47,7 @@ class HachoirAdapter(ImageToolAdapter):
 class InsightFaceAdapter(ImageToolAdapter):
     name = "insightface"
     group = "face_analysis"
-    default_timeout = 300.0
+    default_timeout = 90.0
 
     async def _execute(self, query: str) -> ToolResult:
         return await runners.run_insightface(query)
@@ -56,7 +56,7 @@ class InsightFaceAdapter(ImageToolAdapter):
 class DeepFaceAdapter(ImageToolAdapter):
     name = "deepface"
     group = "face_analysis"
-    default_timeout = 300.0
+    default_timeout = 90.0
 
     async def _execute(self, query: str) -> ToolResult:
         return await runners.run_deepface(query)
@@ -65,7 +65,7 @@ class DeepFaceAdapter(ImageToolAdapter):
 class FaceNetAdapter(ImageToolAdapter):
     name = "facenet"
     group = "face_analysis"
-    default_timeout = 300.0
+    default_timeout = 90.0
 
     async def _execute(self, query: str) -> ToolResult:
         return await runners.run_facenet(query)

@@ -9,6 +9,7 @@ export interface ToolProgress {
   execution_time_ms?: number;
   error?: string;
   detail?: string;
+  findings_count?: number;
 }
 
 export interface LinkedAccount {

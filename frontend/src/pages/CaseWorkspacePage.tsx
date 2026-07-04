@@ -18,10 +18,11 @@ import { loadInvestigationById } from '../api/investigate';
 import {
   addBookmark, addCaseComment, addCaseNote, addPin, archiveEvidence, createCaseTask,
   decideApproval, fetchBookmarks, fetchCaseActivity, fetchCaseApprovals, fetchCaseComments,
-  fetchCaseDetail, fetchCaseEvidence, fetchCaseNotes, fetchCaseTasks, fetchPins,
-  markEvidenceImportant, updateTaskStatus, type ApprovalRecord, type CaseDetail,
+  fetchCaseDetail, fetchCaseEvidence, fetchCaseNotes, fetchCaseTasks, fetchMyPermissions, fetchPins,
+  markEvidenceImportant, updateTaskStatus, type ApprovalRecord, type CaseDetail, type PermissionsSummary,
 } from '../api/enterprise';
-import { hasPermission } from '../lib/permissions';
+import { CaseTeamPanel } from '../components/CaseTeamPanel';
+import { hasEffectivePermission } from '../lib/permissions';
 
 const INV_TABS = [
   { id: 'intelligence', label: 'Intelligence' },
@@ -76,6 +77,7 @@ export function CaseWorkspacePage() {
   const [bookmarkLabel, setBookmarkLabel] = useState('');
   const [pinLabel, setPinLabel] = useState('');
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
+  const [casePermissions, setCasePermissions] = useState<PermissionsSummary | null>(null);
   const [caseLoading, setCaseLoading] = useState(false);
   const [investigationLoading, setInvestigationLoading] = useState(false);
   const [headerCompact, setHeaderCompact] = useState(false);
@@ -83,9 +85,16 @@ export function CaseWorkspacePage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const caseId = selectedCaseId || activeCaseId;
-  const canInvestigate = hasPermission(role, 'start_investigation');
-  const canApprove = hasPermission(role, 'approve_evidence');
-  const canEdit = hasPermission(role, 'edit_case');
+  const canInvestigate = hasEffectivePermission(casePermissions, role, 'start_investigation');
+  const canApprove = hasEffectivePermission(casePermissions, role, 'approve_evidence');
+  const canEdit = hasEffectivePermission(casePermissions, role, 'edit_case');
+  const canViewCase = hasEffectivePermission(casePermissions, role, 'view_cases');
+
+  const visibleTabs = WS_TABS.filter((t) => {
+    if (t.id === 'investigate') return canInvestigate;
+    if (t.id === 'approvals') return canApprove;
+    return canViewCase || t.id === 'overview';
+  });
 
   const reloadEvidence = () => {
     if (!caseId) return;
@@ -132,6 +141,7 @@ export function CaseWorkspacePage() {
     fetchCaseTasks(caseId).then((d) => setTasks(d.tasks || [])).catch(() => setTasks([]));
     fetchBookmarks(caseId).then((d) => setBookmarks(d.bookmarks || [])).catch(() => setBookmarks([]));
     fetchPins(caseId).then((d) => setPins(d.pins || [])).catch(() => setPins([]));
+    fetchMyPermissions(caseId).then(setCasePermissions).catch(() => setCasePermissions(null));
   }, [caseId]);
 
   useEffect(() => {
@@ -201,7 +211,7 @@ export function CaseWorkspacePage() {
         ) : null}
 
         <nav className="workspace-tabs">
-          {WS_TABS.map((t) => (
+          {visibleTabs.map((t) => (
             <button
               key={t.id}
               type="button"
@@ -217,20 +227,23 @@ export function CaseWorkspacePage() {
       <div ref={scrollRef} className="workspace-scroll">
         <div className="workspace-content">
       {tab === 'overview' && (
-        <div key="overview" className="workspace-tab-panel intel-panel rounded-xl p-4">
-          <h2 className="mb-2 text-sm font-semibold">Recent investigations</h2>
-          {caseLoading ? (
-            <div className="flex items-center gap-2 py-6 text-sm text-slate-500">
-              <Spinner size="sm" variant="ring" />
-              Loading case data…
-            </div>
-          ) : (
-            <ul className="space-y-1 text-sm">
-              {(detail?.investigations || []).map((inv) => (
-                <li key={inv.investigation_id} className="text-slate-300">{inv.query} <span className="text-slate-600">({inv.created_at?.slice(0, 10)})</span></li>
-              ))}
-            </ul>
-          )}
+        <div key="overview" className="workspace-tab-panel space-y-4">
+          <div className="intel-panel rounded-xl p-4">
+            <h2 className="mb-2 text-sm font-semibold">Recent investigations</h2>
+            {caseLoading ? (
+              <div className="flex items-center gap-2 py-6 text-sm text-slate-500">
+                <Spinner size="sm" variant="ring" />
+                Loading case data…
+              </div>
+            ) : (
+              <ul className="space-y-1 text-sm">
+                {(detail?.investigations || []).map((inv) => (
+                  <li key={inv.investigation_id} className="text-slate-300">{inv.query} <span className="text-slate-600">({inv.created_at?.slice(0, 10)})</span></li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {caseId && <CaseTeamPanel caseId={caseId} />}
         </div>
       )}
 
@@ -270,7 +283,6 @@ export function CaseWorkspacePage() {
               </div>
             </section>
           </div>
-          <FloatingCopilot />
           <EntityDetailDrawer />
         </div>
       )}
@@ -406,6 +418,7 @@ export function CaseWorkspacePage() {
       )}
         </div>
       </div>
+      <FloatingCopilot />
     </div>
   );
 }

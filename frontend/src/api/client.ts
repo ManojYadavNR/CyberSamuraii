@@ -127,6 +127,7 @@ export async function fetchCopilotStatus(): Promise<{
 export async function copilotChat(payload: {
   message: string;
   investigation_id?: string;
+  case_id?: string;
   context?: Record<string, unknown>;
 }): Promise<{ answer: string }> {
   return apiFetch<{ answer: string }>('/api/dashboard/copilot', { method: 'POST', body: JSON.stringify(payload) });
@@ -136,6 +137,7 @@ export async function copilotChatStream(
   payload: {
     message: string;
     investigation_id?: string;
+    case_id?: string;
     context?: Record<string, unknown>;
   },
   onEvent: (event: {
@@ -202,6 +204,7 @@ export async function copilotAsk(
   payload: {
     message: string;
     investigation_id?: string;
+    case_id?: string;
     context?: Record<string, unknown>;
   },
   onEvent: (event: {

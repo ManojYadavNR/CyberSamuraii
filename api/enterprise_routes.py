@@ -3,19 +3,22 @@
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from api.deps import client_ip, get_current_user, require_permission
+from api.deps import client_ip, get_current_user, require_case_permission, require_permission
 from schemas.enterprise import (
     ApprovalDecision,
     ApprovalSubmit,
     AssignCaseRequest,
     BookmarkCreate,
+    CaseAssignmentOut,
     CaseCreate,
     CaseOut,
+    CaseTeamAssignRequest,
     CaseUpdate,
     CommentCreate,
     EvidenceMarkRequest,
     NoteCreate,
     PasswordChange,
+    PermissionsSummary,
     PinCreate,
     ReportRequest,
     TaskCreate,
@@ -26,6 +29,13 @@ from schemas.enterprise import (
     WorkspaceNote,
 )
 from services.enterprise.approvals import decide_approval, list_approvals, list_pending_for_role, submit_for_review
+from services.enterprise.case_assignments import (
+    assign_case_team,
+    list_case_assignments,
+    remove_case_assignment,
+    suggest_relationship_for_user,
+)
+from services.enterprise.rbac import effective_permissions_summary, rbac_config_payload
 from services.enterprise.cases import (
     archive_case,
     assign_case,
@@ -89,6 +99,11 @@ async def users_create(body: UserCreate, request: Request, user=Depends(require_
             role=body.role,
             department=body.department,
             designation=body.designation,
+            rank_code=body.rank_code,
+            agency_code=body.agency_code,
+            unit=body.unit,
+            district=body.district,
+            supervisor_id=body.supervisor_id,
             employee_id=body.employee_id,
             badge_number=body.badge_number,
             actor_id=user.user_id,
@@ -202,7 +217,7 @@ async def cases_create(body: CaseCreate, request: Request, user=Depends(require_
 
 
 @router.get("/cases/{case_id}", response_model=CaseOut)
-async def cases_get(case_id: str, user=Depends(require_permission("view_cases"))):
+async def cases_get(case_id: str, user=Depends(require_case_permission("view_cases"))):
     row = get_case(case_id)
     if not row:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -210,7 +225,7 @@ async def cases_get(case_id: str, user=Depends(require_permission("view_cases"))
 
 
 @router.patch("/cases/{case_id}", response_model=CaseOut)
-async def cases_update(case_id: str, body: CaseUpdate, request: Request, user=Depends(require_permission("edit_case"))):
+async def cases_update(case_id: str, body: CaseUpdate, request: Request, user=Depends(require_case_permission("edit_case"))):
     updates = body.model_dump(exclude_unset=True)
     row = update_case(case_id, updates=updates, actor_id=user.user_id, username=user.username, ip=client_ip(request))
     if not row:
@@ -219,7 +234,7 @@ async def cases_update(case_id: str, body: CaseUpdate, request: Request, user=De
 
 
 @router.post("/cases/{case_id}/close", response_model=CaseOut)
-async def cases_close(case_id: str, request: Request, user=Depends(require_permission("close_case"))):
+async def cases_close(case_id: str, request: Request, user=Depends(require_case_permission("close_case"))):
     row = update_case(case_id, updates={"status": "CLOSED"}, actor_id=user.user_id, username=user.username, ip=client_ip(request))
     if not row:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -227,7 +242,7 @@ async def cases_close(case_id: str, request: Request, user=Depends(require_permi
 
 
 @router.post("/cases/{case_id}/archive", response_model=CaseOut)
-async def cases_archive(case_id: str, request: Request, user=Depends(require_permission("close_case"))):
+async def cases_archive(case_id: str, request: Request, user=Depends(require_case_permission("close_case"))):
     from datetime import datetime, timezone
 
     row = update_case(
@@ -243,7 +258,7 @@ async def cases_archive(case_id: str, request: Request, user=Depends(require_per
 
 
 @router.post("/cases/{case_id}/investigations/{investigation_id}")
-async def link_inv(case_id: str, investigation_id: str, query: str = "", user=Depends(require_permission("start_investigation"))):
+async def link_inv(case_id: str, investigation_id: str, query: str = "", user=Depends(require_case_permission("start_investigation"))):
     link_investigation(case_id=case_id, investigation_id=investigation_id, started_by=user.user_id, query=query)
     log_audit(user_id=user.user_id, username=user.username, action="link_investigation", entity=f"{case_id}:{investigation_id}")
     return {"ok": True}
@@ -356,7 +371,7 @@ async def audit_detail(log_id: str, user=Depends(require_permission("view_audit_
 
 
 @router.get("/cases/{case_id}/detail")
-async def cases_detail(case_id: str, user=Depends(require_permission("view_cases"))):
+async def cases_detail(case_id: str, user=Depends(require_case_permission("view_cases"))):
     row = get_case_detail(case_id)
     if not row:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -364,16 +379,30 @@ async def cases_detail(case_id: str, user=Depends(require_permission("view_cases
 
 
 @router.post("/cases/{case_id}/assign", response_model=CaseOut)
-async def cases_assign(case_id: str, body: AssignCaseRequest, request: Request, user=Depends(require_permission("assign_case"))):
-    row = assign_case(case_id, assigned_to=body.assigned_to, actor_id=user.user_id, username=user.username, ip=client_ip(request))
+async def cases_assign(case_id: str, body: AssignCaseRequest, request: Request, user=Depends(require_case_permission("assign_case"))):
+    row = assign_case(
+        case_id,
+        assigned_to=body.assigned_to,
+        actor_id=user.user_id,
+        username=user.username,
+        ip=client_ip(request),
+        relationship=body.relationship,
+    )
     if not row:
         raise HTTPException(status_code=404, detail="Case not found")
     return CaseOut(**row)
 
 
 @router.post("/cases/{case_id}/transfer", response_model=CaseOut)
-async def cases_transfer(case_id: str, body: AssignCaseRequest, request: Request, user=Depends(require_permission("assign_case"))):
-    row = transfer_case(case_id, assigned_to=body.assigned_to, actor_id=user.user_id, username=user.username, ip=client_ip(request))
+async def cases_transfer(case_id: str, body: AssignCaseRequest, request: Request, user=Depends(require_case_permission("assign_case"))):
+    row = transfer_case(
+        case_id,
+        assigned_to=body.assigned_to,
+        actor_id=user.user_id,
+        username=user.username,
+        ip=client_ip(request),
+        relationship=body.relationship,
+    )
     if not row:
         raise HTTPException(status_code=404, detail="Case not found")
     return CaseOut(**row)
@@ -388,7 +417,7 @@ async def cases_delete(case_id: str, request: Request, user=Depends(require_perm
 
 
 @router.get("/cases/{case_id}/notes", response_model=list[WorkspaceNote])
-async def list_notes(case_id: str, user=Depends(require_permission("view_cases"))):
+async def list_notes(case_id: str, user=Depends(require_case_permission("view_cases"))):
     return [
         WorkspaceNote(note_id=n["note_id"], case_id=n["case_id"], author_id=n["author_id"], author_name="", content=n["content"], created_at=n["created_at"], pinned=n["pinned"])
         for n in ws_list_notes(case_id)
@@ -396,7 +425,7 @@ async def list_notes(case_id: str, user=Depends(require_permission("view_cases")
 
 
 @router.post("/cases/{case_id}/notes", response_model=WorkspaceNote)
-async def add_note(case_id: str, body: NoteCreate, user=Depends(require_permission("edit_case"))):
+async def add_note(case_id: str, body: NoteCreate, user=Depends(require_case_permission("edit_case"))):
     row = ws_add_note(case_id=case_id, author_id=user.user_id, content=body.content, pinned=body.pinned)
     if not row:
         raise HTTPException(status_code=500, detail="Failed to add note")
@@ -404,12 +433,12 @@ async def add_note(case_id: str, body: NoteCreate, user=Depends(require_permissi
 
 
 @router.get("/cases/{case_id}/comments")
-async def case_comments(case_id: str, user=Depends(require_permission("view_cases"))):
+async def case_comments(case_id: str, user=Depends(require_case_permission("view_cases"))):
     return {"comments": list_comments(case_id)}
 
 
 @router.post("/cases/{case_id}/comments")
-async def case_add_comment(case_id: str, body: CommentCreate, user=Depends(require_permission("edit_case"))):
+async def case_add_comment(case_id: str, body: CommentCreate, user=Depends(require_case_permission("edit_case"))):
     row = add_comment(case_id=case_id, author_id=user.user_id, author_name=user.name or user.username, content=body.content)
     if not row:
         raise HTTPException(status_code=500, detail="Failed to add comment")
@@ -417,12 +446,12 @@ async def case_add_comment(case_id: str, body: CommentCreate, user=Depends(requi
 
 
 @router.get("/cases/{case_id}/tasks")
-async def case_tasks(case_id: str, user=Depends(require_permission("view_cases"))):
+async def case_tasks(case_id: str, user=Depends(require_case_permission("view_cases"))):
     return {"tasks": list_tasks(case_id)}
 
 
 @router.post("/cases/{case_id}/tasks")
-async def case_create_task(case_id: str, body: TaskCreate, user=Depends(require_permission("edit_case"))):
+async def case_create_task(case_id: str, body: TaskCreate, user=Depends(require_case_permission("edit_case"))):
     row = create_task(case_id=case_id, title=body.title, description=body.description, assigned_to=body.assigned_to, created_by=user.user_id, actor_name=user.name or user.username)
     if not row:
         raise HTTPException(status_code=500, detail="Failed to create task")
@@ -430,7 +459,7 @@ async def case_create_task(case_id: str, body: TaskCreate, user=Depends(require_
 
 
 @router.patch("/cases/{case_id}/tasks/{task_id}")
-async def case_update_task(case_id: str, task_id: str, status: str, user=Depends(require_permission("edit_case"))):
+async def case_update_task(case_id: str, task_id: str, status: str, user=Depends(require_case_permission("edit_case"))):
     row = update_task_status(task_id, status)
     if not row:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -438,12 +467,12 @@ async def case_update_task(case_id: str, task_id: str, status: str, user=Depends
 
 
 @router.get("/cases/{case_id}/bookmarks")
-async def case_bookmarks(case_id: str, user=Depends(require_permission("view_cases"))):
+async def case_bookmarks(case_id: str, user=Depends(require_case_permission("view_cases"))):
     return {"bookmarks": list_bookmarks(case_id)}
 
 
 @router.post("/cases/{case_id}/bookmarks")
-async def case_add_bookmark(case_id: str, body: BookmarkCreate, user=Depends(require_permission("edit_case"))):
+async def case_add_bookmark(case_id: str, body: BookmarkCreate, user=Depends(require_case_permission("edit_case"))):
     row = add_bookmark(case_id=case_id, user_id=user.user_id, entity_id=body.entity_id, entity_label=body.entity_label, entity_type=body.entity_type)
     if not row:
         raise HTTPException(status_code=500, detail="Failed to bookmark")
@@ -451,12 +480,12 @@ async def case_add_bookmark(case_id: str, body: BookmarkCreate, user=Depends(req
 
 
 @router.get("/cases/{case_id}/pins")
-async def case_pins(case_id: str, user=Depends(require_permission("view_cases"))):
+async def case_pins(case_id: str, user=Depends(require_case_permission("view_cases"))):
     return {"pins": list_pins(case_id)}
 
 
 @router.post("/cases/{case_id}/pins")
-async def case_add_pin(case_id: str, body: PinCreate, user=Depends(require_permission("edit_case"))):
+async def case_add_pin(case_id: str, body: PinCreate, user=Depends(require_case_permission("edit_case"))):
     row = add_pin(case_id=case_id, user_id=user.user_id, finding_key=body.finding_key, finding_label=body.finding_label, finding_data=body.finding_data)
     if not row:
         raise HTTPException(status_code=500, detail="Failed to pin")
@@ -464,17 +493,17 @@ async def case_add_pin(case_id: str, body: PinCreate, user=Depends(require_permi
 
 
 @router.get("/cases/{case_id}/activity")
-async def case_activity(case_id: str, user=Depends(require_permission("view_cases"))):
+async def case_activity(case_id: str, user=Depends(require_case_permission("view_cases"))):
     return {"activity": activity_feed(case_id)}
 
 
 @router.get("/cases/{case_id}/evidence")
-async def case_evidence(case_id: str, user=Depends(require_permission("view_cases"))):
+async def case_evidence(case_id: str, user=Depends(require_case_permission("view_cases"))):
     return {"evidence": list_evidence(case_id)}
 
 
 @router.post("/cases/{case_id}/evidence/{evidence_id}/important")
-async def case_evidence_important(case_id: str, evidence_id: str, body: EvidenceMarkRequest, user=Depends(require_permission("approve_evidence"))):
+async def case_evidence_important(case_id: str, evidence_id: str, body: EvidenceMarkRequest, user=Depends(require_case_permission("approve_evidence"))):
     row = mark_evidence_important(evidence_id, body.important)
     if not row:
         raise HTTPException(status_code=404, detail="Evidence not found")
@@ -482,7 +511,7 @@ async def case_evidence_important(case_id: str, evidence_id: str, body: Evidence
 
 
 @router.post("/cases/{case_id}/evidence/{evidence_id}/archive")
-async def case_evidence_archive(case_id: str, evidence_id: str, request: Request, user=Depends(require_permission("approve_evidence"))):
+async def case_evidence_archive(case_id: str, evidence_id: str, request: Request, user=Depends(require_case_permission("approve_evidence"))):
     row = archive_evidence(evidence_id, actor_id=user.user_id, username=user.username)
     if not row:
         raise HTTPException(status_code=404, detail="Evidence not found")
@@ -490,7 +519,7 @@ async def case_evidence_archive(case_id: str, evidence_id: str, request: Request
 
 
 @router.post("/cases/{case_id}/approvals/submit")
-async def case_submit_approval(case_id: str, body: ApprovalSubmit, user=Depends(require_permission("start_investigation"))):
+async def case_submit_approval(case_id: str, body: ApprovalSubmit, user=Depends(require_case_permission("start_investigation"))):
     row = submit_for_review(case_id=case_id, investigation_id=body.investigation_id, cluster_id=body.cluster_id, submitter_id=user.user_id, submitter_name=user.name or user.username, notes=body.notes)
     if not row:
         raise HTTPException(status_code=500, detail="Failed to submit")
@@ -498,7 +527,7 @@ async def case_submit_approval(case_id: str, body: ApprovalSubmit, user=Depends(
 
 
 @router.get("/cases/{case_id}/approvals")
-async def case_approvals(case_id: str, user=Depends(require_permission("view_cases"))):
+async def case_approvals(case_id: str, user=Depends(require_case_permission("view_cases"))):
     return {"approvals": list_approvals(case_id=case_id)}
 
 
@@ -519,7 +548,7 @@ async def approvals_pending(user=Depends(get_current_user)):
 
 
 @router.post("/cases/{case_id}/report")
-async def case_report(case_id: str, body: ReportRequest, user=Depends(require_permission("export_evidence"))):
+async def case_report(case_id: str, body: ReportRequest, user=Depends(require_case_permission("export_evidence"))):
     report = generate_case_report(case_id, format=body.format)
     if not report:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -537,3 +566,54 @@ async def agencies_list(user=Depends(get_current_user)):
         with open(path) as f:
             return json.load(f)
     return {"agencies": []}
+
+
+@router.get("/rbac/config")
+async def rbac_config(user=Depends(get_current_user)):
+    return rbac_config_payload()
+
+
+@router.get("/rbac/permissions/me")
+async def my_permissions(case_id: str | None = None, user=Depends(get_current_user)):
+    from services.enterprise.case_assignments import get_user_case_relationships
+
+    rels = get_user_case_relationships(user.user_id, case_id) if case_id else []
+    return PermissionsSummary(**effective_permissions_summary(user.role, rels))
+
+
+@router.get("/cases/{case_id}/assignments", response_model=list[CaseAssignmentOut])
+async def case_assignments_list(case_id: str, user=Depends(require_case_permission("view_cases"))):
+    return [CaseAssignmentOut(**row) for row in list_case_assignments(case_id)]
+
+
+@router.post("/cases/{case_id}/assignments", response_model=list[CaseAssignmentOut])
+async def case_assignments_set(
+    case_id: str,
+    body: CaseTeamAssignRequest,
+    request: Request,
+    user=Depends(require_case_permission("assign_case")),
+):
+    rows = assign_case_team(
+        case_id,
+        assignments=[a.model_dump() for a in body.assignments],
+        actor_id=user.user_id,
+        username=user.username,
+        ip=client_ip(request),
+    )
+    return [CaseAssignmentOut(**row) for row in rows]
+
+
+@router.delete("/cases/{case_id}/assignments/{assignment_id}")
+async def case_assignment_remove(
+    case_id: str,
+    assignment_id: str,
+    user=Depends(require_case_permission("assign_case")),
+):
+    if not remove_case_assignment(assignment_id, actor_id=user.user_id):
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    return {"ok": True}
+
+
+@router.get("/rbac/suggest-relationship")
+async def rbac_suggest_relationship(role: str, rank_code: str = "", sensitive: bool = False, user=Depends(get_current_user)):
+    return {"relationship": suggest_relationship_for_user(role, rank_code, sensitive=sensitive)}

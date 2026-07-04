@@ -84,6 +84,47 @@ function isVerifiedFinding(item: Record<string, unknown>): boolean {
 }
 
 export function toolFindingsCount(result: InvestigationResult | null, toolName: string): number {
+  if (toolName === 'multi_input') {
+    const branches = result?.tool_results?.filter((t) => t.tool !== 'multi_input') ?? [];
+    if (branches.length) return branches.length;
+    if (result?.fusion?.deduplicated_entities?.length) return result.fusion.deduplicated_entities.length;
+    return 0;
+  }
+  if (toolName === 'samurai') {
+    const tr = result?.tool_results?.find((t) => t.tool === 'samurai' && t.success);
+    const row = tr?.data?.find((item) => {
+      const r = item as Record<string, unknown>;
+      return r.platform === 'samurai_intel' || r.check_type === 'samurai_intel';
+    }) as Record<string, unknown> | undefined;
+    if (!row) {
+      const intel = result?.evidence_extraction?.samurai_social_intel as Record<string, unknown> | undefined;
+      if (!intel) return 0;
+      let n = 0;
+      if (intel.instagram) n += 1;
+      if (intel.facebook || intel.facebook_slug) n += 1;
+      const ig = intel.instagram as Record<string, unknown> | undefined;
+      const fb = intel.facebook as Record<string, unknown> | undefined;
+      n += Array.isArray(ig?.similar_profiles) ? ig.similar_profiles.length : 0;
+      n += Array.isArray(fb?.similar_profiles) ? fb.similar_profiles.length : 0;
+      n += Array.isArray(fb?.photos) ? fb.photos.length : 0;
+      const pd = (fb?.personal_details as Record<string, unknown> | undefined)
+        || ((fb?.profile as Record<string, unknown> | undefined)?.personal_details as Record<string, unknown> | undefined);
+      n += pd ? Object.keys(pd).length : 0;
+      return n;
+    }
+    let n = 0;
+    if (row.instagram) n += 1;
+    if (row.facebook || row.facebook_slug) n += 1;
+    const ig = row.instagram as Record<string, unknown> | undefined;
+    const fb = row.facebook as Record<string, unknown> | undefined;
+    n += Array.isArray(ig?.similar_profiles) ? ig.similar_profiles.length : 0;
+    n += Array.isArray(fb?.similar_profiles) ? fb.similar_profiles.length : 0;
+    n += Array.isArray(fb?.photos) ? fb.photos.length : 0;
+    const pd = (fb?.personal_details as Record<string, unknown> | undefined)
+      || ((fb?.profile as Record<string, unknown> | undefined)?.personal_details as Record<string, unknown> | undefined);
+    n += pd ? Object.keys(pd).length : 0;
+    return n;
+  }
   const tr = result?.tool_results?.find((t) => t.tool === toolName);
   if (tr?.data?.length) {
     const rows = tr.data.filter((item) => (item as Record<string, unknown>).platform !== '_scan_summary');
@@ -113,14 +154,18 @@ export function toolLiveFindingsCount(
   result: InvestigationResult | null,
   toolName: string,
   detail?: string,
+  findingsHint?: number,
 ): number {
   const fromResult = toolFindingsCount(result, toolName);
   if (fromResult > 0) return fromResult;
+  if (typeof findingsHint === 'number' && findingsHint > 0) return findingsHint;
   const fromDetail = hitsFromToolDetail(detail);
   return fromDetail ?? 0;
 }
 
 export function toolEmptyLabel(toolName: string): string {
+  if (toolName === 'multi_input') return 'Branches completed — see tool results below';
+  if (toolName === 'samurai') return 'No social profiles resolved';
   if (toolName === 'google_dorking') return 'No web results found';
   if (toolName === 'platform_probe') return 'No live profiles on major platforms';
   if (toolName === 'nexfil' || toolName === 'blackbird') return 'No profiles found';

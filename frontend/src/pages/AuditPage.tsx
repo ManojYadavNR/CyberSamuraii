@@ -368,7 +368,7 @@ export function AuditPage() {
               className="audit-filter-input"
             >
               <option value="">All roles</option>
-              {['SUPER_ADMIN', 'CID_DIRECTOR', 'SP', 'DSP', 'INSPECTOR', 'ANALYST', 'AUDITOR'].map((r) => (
+              {['SUPER_ADMIN', 'DGP', 'ADGP', 'IGP', 'DIG', 'SP', 'DSP', 'PI', 'PSI', 'HC', 'PC'].map((r) => (
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>

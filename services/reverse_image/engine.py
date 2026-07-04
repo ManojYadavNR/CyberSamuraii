@@ -54,7 +54,9 @@ class ReverseImageDiscoveryEngine:
 
         from services.intelligence_cache import get_cached, image_content_key, set_cached
 
-        cache_key = image_content_key(path)
+        # Include source set so a single-adapter probe cannot poison the full run cache.
+        source_tag = ",".join(sorted(self._source_names)) if self._source_names else "all"
+        cache_key = f"{image_content_key(path)}:{source_tag}"
         cached = get_cached("reverse_discovery", cache_key)
         if cached and isinstance(cached, dict):
             try:

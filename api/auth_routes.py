@@ -183,16 +183,24 @@ async def demo_accounts():
         return {"accounts": []}
     with open(path) as f:
         cfg = json.load(f)
-    password = os.getenv("DEMO_USER_PASSWORD", cfg.get("default_password", ""))
+    password = os.getenv("DEMO_USER_PASSWORD_TEMPLATE", cfg.get("password_template", "Socmint@CID2026!{rank}"))
     show_password = os.getenv("SHOW_DEMO_PASSWORDS", "true").lower() in {"1", "true", "yes"}
     accounts = [
-        {"username": u["username"], "role": u["role"], "name": u.get("name", "")}
+        {
+            "username": u["username"],
+            "role": u["role"],
+            "name": u.get("name", ""),
+            "password_hint": password.replace("{rank}", u.get("role", "")),
+        }
         for u in cfg.get("users", [])
     ]
-    out: dict = {"accounts": accounts, "admin_username": os.getenv("ADMIN_USERNAME", "admin")}
+    out: dict = {
+        "accounts": accounts,
+        "admin_username": os.getenv("ADMIN_USERNAME", "admin"),
+        "password_template": password,
+    }
     if show_password:
-        out["demo_password"] = password
-        out["admin_password_hint"] = "Set ADMIN_PASSWORD in .env (must meet password policy on first seed)"
+        out["admin_password_hint"] = "Set ADMIN_PASSWORD in .env (default Socmint@CID2026!Admin)"
     return out
 
 

@@ -37,6 +37,7 @@ export default function App() {
         else useAuthStore.setState({ user });
       })
       .catch(() => { /* session refresh handler will clear on 401 */ });
+    import('./lib/permissions').then(({ loadRbacConfig }) => loadRbacConfig().catch(() => undefined));
   }, [enterpriseAuth, accessToken, refreshToken, setSession]);
 
   if (enterpriseAuth && !authenticated) {

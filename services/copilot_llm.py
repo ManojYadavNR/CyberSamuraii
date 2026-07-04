@@ -33,6 +33,11 @@ def context_max_chars() -> int:
     return int(os.getenv("COPILOT_CONTEXT_MAX_CHARS", "3500"))
 
 
+def hard_max_context_chars() -> int:
+    """Upper bound when injecting pre-built context into the system prompt."""
+    return int(os.getenv("COPILOT_HARD_MAX_CHARS", "12000"))
+
+
 def map_chunk_pause_sec(*, interactive: bool = False) -> float:
     if interactive:
         return 0.0
@@ -109,7 +114,9 @@ async def release_heavy_ollama_models() -> None:
 SYSTEM_PROMPT = """You are an OSINT investigation copilot. Analyze the investigation data and answer naturally.
 
 RULES:
-- Use ONLY the investigation data below. Never invent accounts or URLs.
+- Use ONLY the investigation / case data below. Never invent accounts or URLs.
+- When scope is "case", the data includes ALL investigations under that case (username, email, phone, image, domain, etc.). Use every investigation, not only the current one.
+- When citing findings, mention which investigation query they came from if multiple exist.
 - Answer the analyst's question directly — short paragraph or a few bullets.
 - No fixed headers (KEY FINDINGS, DETAILS, NOT IN DATA).
 - Only real https:// URLs from data — never {username} templates.
@@ -186,12 +193,12 @@ def build_chat_messages(
 ) -> list[dict[str, str]]:
     from services.copilot_language import reply_language_instruction
 
-    limit = context_max_chars()
+    limit = hard_max_context_chars()
     lang = reply_language_instruction(user_message)
     system = (
         SYSTEM_PROMPT
         + f"\n\n{lang}"
-        + "\n\n--- INVESTIGATION DATA ---\n"
+        + "\n\n--- INVESTIGATION / CASE DATA ---\n"
         + context_json[:limit]
     )
     return [

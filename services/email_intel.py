@@ -192,16 +192,20 @@ def build_email_investigation(
             dork_hits = [
                 item
                 for item in result.data
-                if item.get("check_type") == "google_dork" and item.get("platform") != "_scan_summary"
+                if item.get("platform") != "_scan_summary"
+                and item.get("check_type") in ("google_dork", "google_search_discovery", None)
+                and (item.get("url") or item.get("check_type") == "google_search_discovery")
             ]
             summary_row = next(
                 (item for item in result.data if item.get("platform") == "_scan_summary"),
                 {},
             )
+            hit_count = len(dork_hits) or int(summary_row.get("sites_found") or 0)
             scan_summary["google_dorking"] = {
                 "status": "completed",
-                "hits": len(dork_hits),
-                "dorks_run": summary_row.get("sites_checked") or len(dork_hits),
+                "hits": hit_count,
+                "dorks_run": summary_row.get("sites_checked") or len(dork_hits) or 0,
+                "note": summary_row.get("note"),
             }
             for item in dork_hits[:12]:
                 url = item.get("url")

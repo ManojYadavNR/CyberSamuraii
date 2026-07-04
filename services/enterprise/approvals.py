@@ -8,8 +8,9 @@ from services.enterprise.audit import log_audit
 from services.enterprise.db import get_session, new_id
 from services.enterprise.notifications import notify_role
 
-STAGES = ["INSPECTOR", "DSP", "SP"]
-ROLE_FOR_STAGE = {"INSPECTOR": "INSPECTOR", "DSP": "DSP", "SP": "SP"}
+STAGES = ["PI", "DSP", "SP"]
+ROLE_FOR_STAGE = {"PI": "PI", "DSP": "DSP", "SP": "SP"}
+_ADMIN_OVERRIDE = frozenset({"SUPER_ADMIN", "DGP", "ADGP", "DIG"})
 
 
 def submit_for_review(
@@ -32,7 +33,7 @@ def submit_for_review(
             case_id=case_id,
             investigation_id=investigation_id,
             cluster_id=cluster_id,
-            stage="INSPECTOR",
+            stage="PI",
             decision="pending",
             reviewer_id="",
             reviewer_name=submitter_name,
@@ -42,7 +43,7 @@ def submit_for_review(
         session.query(_MODELS["Case"]).filter_by(case_id=case_id).update({"status": "UNDER_REVIEW"})
         session.commit()
         session.refresh(row)
-        notify_role("INSPECTOR", title="Review requested", body=f"{submitter_name} submitted findings for review", case_id=case_id)
+        notify_role("PI", title="Review requested", body=f"{submitter_name} submitted findings for review", case_id=case_id)
         log_audit(user_id=submitter_id, username=submitter_name, action="submit_review", entity=cluster_id, details={"case_id": case_id})
         return _approval_out(row)
     except Exception:
@@ -72,7 +73,7 @@ def decide_approval(
         if not row:
             return None
         expected_role = ROLE_FOR_STAGE.get(row.stage, "")
-        if expected_role and reviewer_role not in {expected_role, "SUPER_ADMIN", "CID_DIRECTOR"}:
+        if expected_role and reviewer_role not in {expected_role, *_ADMIN_OVERRIDE}:
             raise ValueError(f"Only {expected_role} can decide at this stage")
         row.decision = decision
         row.reviewer_id = reviewer_id
@@ -100,7 +101,7 @@ def decide_approval(
         elif decision == "rejected":
             session.query(_MODELS["Case"]).filter_by(case_id=row.case_id).update({"status": "ACTIVE"})
         elif decision == "clarification":
-            notify_role("ANALYST", title="Clarification requested", body=notes or "Please clarify findings", case_id=row.case_id)
+            notify_role("PI", title="Clarification requested", body=notes or "Please clarify findings", case_id=row.case_id)
         session.commit()
         session.refresh(row)
         log_audit(user_id=reviewer_id, username=reviewer_name, action=f"approval_{decision}", entity=approval_id)
@@ -156,7 +157,7 @@ def list_pending_for_role(role: str) -> list[dict]:
         from services.enterprise.db import _MODELS
 
         stage = role if role in STAGES else None
-        if not stage and role not in {"SUPER_ADMIN", "CID_DIRECTOR"}:
+        if not stage and role not in _ADMIN_OVERRIDE:
             return []
         q = session.query(_MODELS["ApprovalRecord"]).filter_by(decision="pending")
         if stage:

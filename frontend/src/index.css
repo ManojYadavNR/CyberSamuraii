@@ -2771,3 +2771,28 @@ button:active:not(:disabled) {
   color: #64748b;
 }
 
+/* ── Floating Copilot (viewport-fixed via portal) ── */
+.floating-copilot-fab {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 9999;
+}
+
+.floating-copilot-panel {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 9999;
+  height: min(600px, calc(100vh - 3rem));
+  width: min(420px, calc(100vw - 2rem));
+  border-radius: 1.5rem;
+}
+
+.floating-copilot-panel--expanded {
+  inset: 1rem;
+  height: auto;
+  width: auto;
+  border-radius: 1.5rem;
+}
+

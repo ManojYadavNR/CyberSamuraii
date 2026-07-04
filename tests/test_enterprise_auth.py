@@ -30,8 +30,8 @@ def test_super_admin_has_all_permissions():
 
 
 def test_viewer_cannot_start_investigation():
-    assert not has_permission("VIEWER", "start_investigation")
-    assert has_permission("VIEWER", "view_cases")
+    assert not has_permission("PC", "start_investigation")
+    assert has_permission("PC", "view_cases")
 
 
 def test_login_and_protected_route():

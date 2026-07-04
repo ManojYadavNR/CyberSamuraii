@@ -68,6 +68,17 @@ async def lifespan(app: FastAPI):
     from services.osint_registry.registry import registry as osint_registry
 
     osint_registry.reload()
+    # Clear zombie "running" investigations so the UI poller cannot spin forever.
+    try:
+        from services.investigation_cache import expire_all_stale_running
+
+        expired = expire_all_stale_running(force=True)
+        if expired:
+            import logging
+
+            logging.getLogger(__name__).info("Expired %s stale running investigation(s)", expired)
+    except Exception:
+        pass
     yield
 
 

@@ -13,8 +13,24 @@ from services.enterprise.db import get_session, new_id
 from services.enterprise.notifications import notify_role, notify_user
 from services.enterprise.password_policy import assert_strong_password
 
-SUPERVISOR_ROLES = frozenset({"SP", "DSP", "INSPECTOR", "CID_DIRECTOR", "SUPER_ADMIN"})
-ADMIN_ROLES = frozenset({"SUPER_ADMIN", "CID_DIRECTOR"})
+def _supervisor_roles() -> frozenset[str]:
+    from services.enterprise.rbac import workflow_config
+
+    wf = workflow_config()
+    ranks = wf.get("supervisor_ranks", ["SP", "DSP", "PI", "DIG", "IGP", "ADGP", "DGP"])
+    return frozenset(list(ranks) + ["SUPER_ADMIN"])
+
+
+def _admin_roles() -> frozenset[str]:
+    from services.enterprise.rbac import workflow_config
+
+    wf = workflow_config()
+    ranks = wf.get("admin_ranks", ["DGP", "ADGP"])
+    return frozenset(list(ranks) + ["SUPER_ADMIN"])
+
+
+SUPERVISOR_ROLES = _supervisor_roles()
+ADMIN_ROLES = _admin_roles()
 
 
 def _request_public(row, *, user=None) -> dict[str, Any]:
@@ -191,7 +207,8 @@ def supervisor_decide_password_reset(
         if approve:
             row.status = "pending_admin"
             notify_role("SUPER_ADMIN", title="Password reset needs admin approval", body=f"Request for {row.employee_id}")
-            notify_role("CID_DIRECTOR", title="Password reset needs admin approval", body=f"Request for {row.employee_id}")
+            notify_role("DGP", title="Password reset needs admin approval", body=f"Request for {row.employee_id}")
+            notify_role("ADGP", title="Password reset needs admin approval", body=f"Request for {row.employee_id}")
         else:
             row.status = "denied"
             row.completed_at = now

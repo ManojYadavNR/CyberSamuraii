@@ -8,8 +8,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 RoleName = Literal[
-    "SUPER_ADMIN", "CID_DIRECTOR", "SP", "DSP", "INSPECTOR", "SUB_INSPECTOR",
-    "ANALYST", "INTELLIGENCE_OFFICER", "FORENSICS_OFFICER", "VIEWER", "AUDITOR",
+    "SUPER_ADMIN",
+    "DGP", "ADGP", "IGP", "DIG", "SP", "DSP", "PI", "PSI", "HC", "PC",
 ]
 
 CaseStatus = Literal["OPEN", "ACTIVE", "UNDER_REVIEW", "ESCALATED", "CLOSED", "ARCHIVED"]
@@ -24,6 +24,11 @@ class UserPublic(BaseModel):
     role: str
     department: str = ""
     designation: str = ""
+    rank_code: str = ""
+    agency_code: str = ""
+    unit: str = ""
+    district: str = ""
+    supervisor_id: str = ""
     employee_id: str = ""
     badge_number: str = ""
     active: bool = True
@@ -82,6 +87,11 @@ class UserCreate(BaseModel):
     role: RoleName
     department: str = ""
     designation: str = ""
+    rank_code: str = ""
+    agency_code: str = ""
+    unit: str = ""
+    district: str = ""
+    supervisor_id: str = ""
     employee_id: str = ""
     badge_number: str = ""
 
@@ -92,6 +102,11 @@ class UserUpdate(BaseModel):
     role: RoleName | None = None
     department: str | None = None
     designation: str | None = None
+    rank_code: str | None = None
+    agency_code: str | None = None
+    unit: str | None = None
+    district: str | None = None
+    supervisor_id: str | None = None
     active: bool | None = None
 
 
@@ -205,6 +220,40 @@ class PinCreate(BaseModel):
 
 class AssignCaseRequest(BaseModel):
     assigned_to: str
+    relationship: str = "investigating_officer"
+
+
+class CaseAssignmentCreate(BaseModel):
+    user_id: str
+    relationship: str
+    notes: str = ""
+
+
+class CaseTeamAssignRequest(BaseModel):
+    assignments: list[CaseAssignmentCreate] = Field(default_factory=list)
+    template_code: str | None = None
+
+
+class CaseAssignmentOut(BaseModel):
+    assignment_id: str
+    case_id: str
+    user_id: str
+    relationship: str
+    org_role: str = ""
+    rank_code: str = ""
+    assigned_by: str = ""
+    active: bool = True
+    notes: str = ""
+    assigned_at: str = ""
+
+
+class PermissionsSummary(BaseModel):
+    role: str
+    rank: str
+    relationships: list[str] = Field(default_factory=list)
+    global_permissions: list[str] = Field(default_factory=list)
+    case_permissions: list[str] = Field(default_factory=list)
+    effective_on_case: list[str] = Field(default_factory=list)
 
 
 class ApprovalSubmit(BaseModel):

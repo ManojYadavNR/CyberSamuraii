@@ -29,8 +29,8 @@ def test_create_user_assigns_employee_and_badge():
         password="TestPass123!@#",
         name="Test User",
         email=f"test_{suffix}@example.com",
-        role="ANALYST",
-        department="CID",
+        role="HC",
+        department="Headquarters",
         actor_username="admin",
     )
     assert row["employee_id"]
@@ -40,22 +40,22 @@ def test_create_user_assigns_employee_and_badge():
 
 def test_update_user_role():
     users = list_users()
-    target = next((u for u in users if u["role"] == "ANALYST"), None)
+    target = next((u for u in users if u["role"] == "HC"), None)
     if not target:
-        pytest.skip("No analyst user to test")
+        pytest.skip("No HC user to test")
     updated = update_user(
         user_id=target["user_id"],
-        role="VIEWER",
+        role="PC",
         actor_id="admin",
         actor_username="admin",
         actor_role="SUPER_ADMIN",
     )
     assert updated is not None
-    assert updated["role"] == "VIEWER"
+    assert updated["role"] == "PC"
     # restore
     update_user(
         user_id=target["user_id"],
-        role="ANALYST",
+        role="HC",
         actor_id="admin",
         actor_username="admin",
         actor_role="SUPER_ADMIN",

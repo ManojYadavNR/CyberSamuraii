@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { copilotAsk, fetchCopilotStatus, prewarmCopilot } from '../api/client';
+import { useAuthStore } from '../store/authStore';
 import { useInvestigationStore } from '../store/investigationStore';
+import { useUiStore } from '../store/uiStore';
 import { CopilotMessage } from './CopilotMessage';
 
 export function CopilotChat() {
@@ -16,6 +18,10 @@ export function CopilotChat() {
   const messages = useInvestigationStore((s) => s.chatMessages);
   const addChatMessage = useInvestigationStore((s) => s.addChatMessage);
   const updateChatMessage = useInvestigationStore((s) => s.updateChatMessage);
+  const selectedCaseId = useUiStore((s) => s.selectedCaseId);
+  const activeCaseId = useAuthStore((s) => s.activeCaseId);
+  const caseMeta = useUiStore((s) => s.selectedCaseMeta);
+  const caseId = selectedCaseId || activeCaseId || undefined;
 
   useEffect(() => {
     const load = () => {
@@ -54,7 +60,8 @@ export function CopilotChat() {
         {
           message: text,
           investigation_id: investigationId ?? undefined,
-          context: { result, query },
+          case_id: caseId,
+          context: { result, query, case_id: caseId },
         },
         (event) => {
           if (event.status === 'thinking' && !streamed) {
@@ -103,7 +110,11 @@ export function CopilotChat() {
           </div>
           <div>
             <h3 className="text-sm font-semibold tracking-tight text-white">Intelligence Copilot</h3>
-            <p className="text-[10px] text-violet-300/70">Investigation assistant</p>
+            <p className="text-[10px] text-violet-300/70">
+              {caseId
+                ? `Case-wide · ${caseMeta?.case_number || 'all investigations'}`
+                : 'Investigation assistant'}
+            </p>
           </div>
         </div>
         <span
@@ -120,9 +131,16 @@ export function CopilotChat() {
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto pr-1">
-        {messages.length === 0 && status !== 'complete' && (
+        {messages.length === 0 && status !== 'complete' && !caseId && (
           <div className="rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3 text-center">
             <p className="text-xs text-slate-400">Ask questions here after an investigation completes.</p>
+          </div>
+        )}
+        {messages.length === 0 && caseId && (
+          <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 px-4 py-3 text-center">
+            <p className="text-xs text-violet-200/90">
+              Copilot can use <strong>every investigation</strong> in this case (username, email, phone, image, and more)—not only the latest run.
+            </p>
           </div>
         )}
         {messages.map((m) => (
@@ -162,7 +180,9 @@ export function CopilotChat() {
       </div>
 
       <p className="mt-3 text-[10px] leading-relaxed text-slate-500">
-        Ask anything about this case — accounts, Instagram, college, evidence, and more.
+        {caseId
+          ? 'Ask across the full case — all linked investigations, accounts, phones, emails, images, and evidence.'
+          : 'Ask anything about this investigation — accounts, Instagram, college, evidence, and more.'}
       </p>
 
       <div className="mt-2 flex gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] p-2 backdrop-blur-sm">

@@ -35,7 +35,7 @@ def test_rich_audit_log_fields():
     log_id = log_audit(
         user_id="u1",
         username="inspector1",
-        role="INSPECTOR",
+        role="PI",
         action="export_evidence",
         entity="case-123",
         entity_type="case",

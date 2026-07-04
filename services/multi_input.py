@@ -36,7 +36,12 @@ class InvestigationInputs:
             for v in (self.username, self.email, self.phone, self.domain, self.name, self.occupation)
             if v
         )
-        return signals > 1 or bool(self.extras)
+        if signals > 1:
+            return True
+        # Image-only uploads land in extras — that is not a multi-field investigation.
+        if signals == 0:
+            return False
+        return bool(self.extras)
 
     @property
     def primary_type(self) -> str:
@@ -150,10 +155,24 @@ def _assign_token(inputs: InvestigationInputs, token: str) -> None:
 
 
 def parse_investigation_input(query: str) -> InvestigationInputs:
+    import os
+
     raw = query.strip()
     inputs = InvestigationInputs(raw=raw)
     if not raw:
         return inputs
+
+    # Local image paths must not be split on "/" (SPLIT_RE treats slash as a delimiter).
+    low = raw.lower()
+    if low.endswith(IMAGE_EXTENSIONS) and not low.startswith(("http://", "https://")):
+        looks_local = (
+            os.path.isfile(raw)
+            or raw.startswith(("/", "./", "../", "~/", "~\\"))
+            or (len(raw) > 2 and raw[1] == ":")
+        )
+        if looks_local:
+            inputs.extras.append(raw)
+            return inputs
 
     segments = [s.strip() for s in SPLIT_RE.split(raw) if s.strip()]
     if len(segments) <= 1:
@@ -163,8 +182,6 @@ def parse_investigation_input(query: str) -> InvestigationInputs:
         _assign_token(inputs, seg)
 
     if not any((inputs.username, inputs.email, inputs.phone, inputs.domain, inputs.name)):
-        import os
-
         if os.path.isfile(raw) and raw.lower().endswith(IMAGE_EXTENSIONS):
             inputs.extras.append(raw)
         elif EMAIL_RE.match(raw):

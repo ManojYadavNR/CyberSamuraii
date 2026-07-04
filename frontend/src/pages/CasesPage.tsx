@@ -8,7 +8,7 @@ import { PageSectionHeader } from '../components/PageSectionHeader';
 import { IntelSelect } from '../components/ui/IntelSelect';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
-import { hasPermission } from '../lib/permissions';
+import { hasPermission, caseRelationshipOptions } from '../lib/permissions';
 import { useCompactPageHeader } from '../hooks/useCompactPageHeader';
 import { LoadingTransition, TableSkeleton } from '../components/loading';
 import type { CaseOut } from '../types/enterprise';
@@ -26,6 +26,7 @@ export function CasesPage() {
   const [title, setTitle] = useState('');
   const [editingCase, setEditingCase] = useState<CaseOut | null>(null);
   const [assignDraft, setAssignDraft] = useState<Record<string, string>>({});
+  const [relationshipDraft, setRelationshipDraft] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const { scrollRef, headerCompact } = useCompactPageHeader([loading, cases.length]);
   const openCase = useUiStore((s) => s.openCase);
@@ -35,6 +36,11 @@ export function CasesPage() {
   const canEdit = hasPermission(role, 'edit_case');
   const canClose = hasPermission(role, 'close_case');
   const canDelete = hasPermission(role, 'delete_case');
+
+  const relOptions = useMemo(
+    () => caseRelationshipOptions().map((r) => ({ value: r.code, label: r.label })),
+    [],
+  );
 
   const investigatorOptions = useMemo(
     () => users.map((u) => ({
@@ -178,7 +184,17 @@ export function CasesPage() {
                               value={assignDraft[c.case_id] || ''}
                               onChange={(userId) => setAssignDraft((prev) => ({ ...prev, [c.case_id]: userId }))}
                               options={investigatorOptions}
-                              placeholder="Assign investigator…"
+                              placeholder="Assign officer…"
+                              size="sm"
+                              className="cases-assign__select-wrap"
+                              maxMenuHeight={260}
+                              align="right"
+                            />
+                            <IntelSelect
+                              value={relationshipDraft[c.case_id] || 'investigating_officer'}
+                              onChange={(rel) => setRelationshipDraft((prev) => ({ ...prev, [c.case_id]: rel }))}
+                              options={relOptions}
+                              placeholder="Relationship…"
                               size="sm"
                               className="cases-assign__select-wrap"
                               maxMenuHeight={260}
@@ -187,7 +203,11 @@ export function CasesPage() {
                             <button
                               type="button"
                               disabled={!assignDraft[c.case_id]}
-                              onClick={() => assignCase(c.case_id, assignDraft[c.case_id]).then(reload)}
+                              onClick={() => assignCase(
+                                c.case_id,
+                                assignDraft[c.case_id],
+                                relationshipDraft[c.case_id] || 'investigating_officer',
+                              ).then(reload)}
                               className="cases-action cases-action--primary"
                             >
                               Assign
@@ -195,7 +215,11 @@ export function CasesPage() {
                             <button
                               type="button"
                               disabled={!assignDraft[c.case_id]}
-                              onClick={() => transferCase(c.case_id, assignDraft[c.case_id]).then(reload)}
+                              onClick={() => transferCase(
+                                c.case_id,
+                                assignDraft[c.case_id],
+                                relationshipDraft[c.case_id] || 'investigating_officer',
+                              ).then(reload)}
                               className="cases-action"
                             >
                               Transfer

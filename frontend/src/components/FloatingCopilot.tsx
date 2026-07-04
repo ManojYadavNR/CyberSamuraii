@@ -1,24 +1,30 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { prewarmCopilot } from '../api/client';
 import { CopilotChat } from './CopilotChat';
 
 export function FloatingCopilot() {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   const openCopilot = () => {
     setOpen(true);
     prewarmCopilot().catch(() => {});
   };
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <>
       {!open && (
         <button
           type="button"
           onClick={openCopilot}
           onMouseEnter={() => prewarmCopilot().catch(() => {})}
-          className="group fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 via-fuchsia-600 to-indigo-600 text-2xl shadow-2xl shadow-violet-900/50 ring-1 ring-white/20 transition hover:scale-105 hover:shadow-violet-700/60"
+          className="floating-copilot-fab group flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 via-fuchsia-600 to-indigo-600 text-2xl shadow-2xl shadow-violet-900/50 ring-1 ring-white/20 transition hover:scale-105 hover:shadow-violet-700/60"
           title="Open Intelligence Copilot"
           aria-label="Open Intelligence Copilot"
         >
@@ -28,10 +34,10 @@ export function FloatingCopilot() {
 
       {open && (
         <div
-          className={`fixed z-50 flex flex-col overflow-hidden border border-white/10 shadow-2xl shadow-black/60 backdrop-blur-xl transition-all ${
+          className={`floating-copilot-panel flex flex-col overflow-hidden border border-white/10 shadow-2xl shadow-black/60 backdrop-blur-xl transition-all ${
             expanded
-              ? 'inset-4 rounded-3xl'
-              : 'bottom-6 right-6 h-[min(600px,calc(100vh-3rem))] w-[min(420px,calc(100vw-2rem))] rounded-3xl'
+              ? 'floating-copilot-panel--expanded'
+              : ''
           }`}
           style={{
             background:
@@ -81,6 +87,7 @@ export function FloatingCopilot() {
           </div>
         </div>
       )}
-    </>
+    </>,
+    document.body,
   );
 }

@@ -222,17 +222,111 @@ def _make_entity(
     )
 
 
+def _extract_samurai_entities(
+    item: dict[str, Any],
+    source_tool: str,
+    query: str,
+) -> list[Entity]:
+    """Lift Instagram / Facebook profiles from the samurai_intel payload into accounts."""
+    entities: list[Entity] = []
+    ig = item.get("instagram") if isinstance(item.get("instagram"), dict) else {}
+    fb = item.get("facebook") if isinstance(item.get("facebook"), dict) else {}
+    prof = ig.get("profile") if isinstance(ig.get("profile"), dict) else {}
+
+    handle = str(prof.get("username") or item.get("username") or query or "").strip().lstrip("@")
+    if handle:
+        url = str(prof.get("profile_url") or f"https://www.instagram.com/{handle}/")
+        entities.append(_make_entity(
+            "account",
+            url,
+            source_tool,
+            {
+                "platform": "instagram",
+                "username": handle.lower(),
+                "url": url,
+                "verified": True,
+                "registered": True,
+                "status": "registered",
+                "display_name": prof.get("full_name"),
+                "follower_count": prof.get("follower_count"),
+                "following_count": prof.get("following_count"),
+                "media_count": prof.get("media_count"),
+                "biography": prof.get("biography"),
+                "profile_pic_url": prof.get("profile_pic_url"),
+                "check_type": "samurai_intel",
+                "source_tool": source_tool,
+            },
+        ))
+
+    for sim in ig.get("similar_profiles") or []:
+        if not isinstance(sim, dict):
+            continue
+        sim_handle = str(sim.get("username") or "").strip().lstrip("@")
+        if not sim_handle:
+            continue
+        sim_url = str(sim.get("profile_url") or f"https://www.instagram.com/{sim_handle}/")
+        entities.append(_make_entity(
+            "account",
+            sim_url,
+            source_tool,
+            {
+                "platform": "instagram",
+                "username": sim_handle.lower(),
+                "url": sim_url,
+                "verified": bool(sim.get("exists")),
+                "registered": bool(sim.get("exists")),
+                "status": "similar_profile",
+                "display_name": sim.get("full_name"),
+                "profile_pic_url": sim.get("profile_pic_url"),
+                "check_type": "samurai_similar",
+                "source_tool": source_tool,
+            },
+        ))
+
+    fb_prof = fb.get("profile") if isinstance(fb.get("profile"), dict) else fb
+    fb_slug = str(item.get("facebook_slug") or fb_prof.get("username") or fb_prof.get("id") or "").strip()
+    if fb_slug or fb:
+        fb_url = str(
+            fb_prof.get("profile_url")
+            or (f"https://www.facebook.com/{fb_slug}" if fb_slug else "")
+            or query
+        )
+        if fb_url:
+            entities.append(_make_entity(
+                "account",
+                fb_url,
+                source_tool,
+                {
+                    "platform": "facebook",
+                    "username": fb_slug.lower() if fb_slug else None,
+                    "url": fb_url,
+                    "verified": True,
+                    "registered": True,
+                    "status": "registered",
+                    "display_name": fb_prof.get("full_name") or fb_prof.get("name"),
+                    "profile_pic_url": fb_prof.get("profile_pic_url"),
+                    "check_type": "samurai_intel",
+                    "source_tool": source_tool,
+                    "facebook_resolution": item.get("facebook_resolution"),
+                },
+            ))
+    return entities
+
+
 def _extract_from_item(
     item: dict[str, Any],
     source_tool: str,
     query: str,
     feature: str,
 ) -> list[Entity]:
+    platform = str(item.get("platform", "unknown"))
+    if platform == "samurai_intel" or item.get("check_type") == "samurai_intel":
+        return _extract_samurai_entities(item, source_tool, query)
+
     if _is_internal_item(item):
         return []
 
     entities: list[Entity] = []
-    platform = str(item.get("platform", "unknown"))
     url = item.get("url")
     meta = _flat_metadata(item)
     meta["platform"] = normalize_platform(platform, url)

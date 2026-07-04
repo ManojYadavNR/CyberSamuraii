@@ -45,26 +45,44 @@ def is_ml_image_tool(tool: str) -> bool:
     return tool in ML_IMAGE_TOOLS
 
 
-# Fast path — Stage 1: metadata + primary face + OCR; Stage 2 adds reverse search.
+# Fast path — multiple techniques without the heaviest models (deepface/paddle/dino).
 IMAGE_FAST_TOOLS: list[str] = [
+    "image_intel",
     "pillow",
     "exiftool",
+    "hachoir",
+    "opencv_face",
     "insightface",
     "facenet",
     "tesseract",
-]
-
-# API-only reverse sources — skip slow browser uploads in fast mode.
-IMAGE_FAST_REVERSE_SOURCES: list[str] = [
-    "public_search",
-    "saucenao",
-    "investigation_hashes",
-    "face_kb",
+    "easyocr",
+    "yolo",
+    "clip",
+    "google_lens",
+    "bing_visual",
+    "yandex_images",
     "tineye",
 ]
 
-IMAGE_HOP_TOOLS: list[str] = ["pillow", "insightface", "tesseract"]
-IMAGE_HOP_REVERSE_SOURCES: list[str] = ["public_search", "face_kb", "investigation_hashes"]
+# Fast reverse sources — prefer DDGS/API over headless browser uploads.
+IMAGE_FAST_REVERSE_SOURCES: list[str] = [
+    "public_search",
+    "google_lens_ddgs",
+    "bing_visual_ddgs",
+    "yandex_images",
+    "tineye",
+    "saucenao",
+    "investigation_hashes",
+    "face_kb",
+]
+
+IMAGE_HOP_TOOLS: list[str] = ["pillow", "exiftool", "opencv_face", "insightface", "tesseract"]
+IMAGE_HOP_REVERSE_SOURCES: list[str] = [
+    "public_search",
+    "google_lens_ddgs",
+    "face_kb",
+    "investigation_hashes",
+]
 
 # Parallel expansion — multiple leads investigated concurrently.
 EXPANSION_CONCURRENCY: int = max(1, int(os.getenv("EXPANSION_CONCURRENCY", "8")))
@@ -84,6 +102,8 @@ FEATURE_TOOL_CONCURRENCY: dict[str, int] = {
     "username_search": max(2, int(os.getenv("USERNAME_TOOL_CONCURRENCY", "10"))),
     "email_intel": max(2, int(os.getenv("EMAIL_TOOL_CONCURRENCY", "10"))),
     "infra_intel": max(2, int(os.getenv("INFRA_TOOL_CONCURRENCY", "4"))),
+    # IO tools parallel; ML tools are further limited by IMAGE_ML_CONCURRENCY.
+    "image_intel": max(2, int(os.getenv("IMAGE_TOOL_CONCURRENCY", "6"))),
 }
 
 # Fast domain tools for discovery hops — registry-driven.
@@ -117,7 +137,10 @@ INFRA_WALL_SEC: float = float(os.getenv("INFRA_WALL_SEC", "300"))
 PHONE_WALL_SEC: float = float(os.getenv("PHONE_WALL_SEC", "120"))
 PHONE_SOCIAL_INTEL_WALL_SEC: float = float(os.getenv("PHONE_SOCIAL_INTEL_WALL_SEC", "120"))
 PHONEINFOGA_WALL_SEC: float = float(os.getenv("PHONEINFOGA_WALL_SEC", "120"))
-IMAGE_WALL_SECONDS: float = float(os.getenv("IMAGE_WALL_SECONDS", "120"))
+IMAGE_WALL_SECONDS: float = float(os.getenv("IMAGE_WALL_SECONDS", "90"))
+IMAGE_STAGE_WALL_SECONDS: float = float(os.getenv("IMAGE_STAGE_WALL_SECONDS", "240"))
+IMAGE_ML_TOOL_WALL_SEC: float = float(os.getenv("IMAGE_ML_TOOL_WALL_SEC", "90"))
+IMAGE_IO_TOOL_WALL_SEC: float = float(os.getenv("IMAGE_IO_TOOL_WALL_SEC", "40"))
 DISCOVERY_WALL_SECONDS: float = float(os.getenv("DISCOVERY_WALL_SECONDS", "170"))
 HOP_IMAGE_WALL_SECONDS: float = float(os.getenv("HOP_IMAGE_WALL_SECONDS", "25"))
 
@@ -147,7 +170,8 @@ def effective_wall_seconds(feature: str) -> float:
 
         if get_investigation_mode() == "samurai":
             if feature == "username_search":
-                return float(os.getenv("SAMURAI_WALL_SEC", "360"))
+                # Hard cap so Samurai never blocks the investigation past ~1.5 min.
+                return float(os.getenv("SAMURAI_WALL_SEC", "120"))
         if get_investigation_mode() == "fast":
             if feature == "username_search":
                 return FAST_USERNAME_WALL_SEC
@@ -181,6 +205,9 @@ def batch_wall_seconds(feature: str, tool_count: int, concurrency: int) -> float
         cap = DUAL_MAX_EMAIL_BATCH_SEC if dual else MAX_EMAIL_BATCH_SEC
         # Email tools run in parallel waves — never starve queued tools.
         return min(max(raw, per_tool + 45.0), cap)
+    if feature == "image_intel":
+        # ML tools serialize; allow enough slots without hanging the investigation.
+        return min(max(raw, per_tool * 2), IMAGE_STAGE_WALL_SECONDS)
     return min(raw, INVESTIGATION_WALL_SECONDS)
 
 # Full deep scan — use only when Deep mode enabled in UI.

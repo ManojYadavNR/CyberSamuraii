@@ -1,29 +1,23 @@
 import type { IntelSelectOption } from '../ui/IntelSelect';
 import type { AuditLogEntry } from '../../types/enterprise';
 import type { IamUser } from './iamTypes';
+import { getCachedRbacConfig, organizationalRankOptions } from '../../lib/permissions';
 
-export const IAM_ROLES = [
-  'ANALYST',
-  'INSPECTOR',
-  'DSP',
-  'SP',
-  'VIEWER',
-  'AUDITOR',
-  'CID_DIRECTOR',
-  'SUPER_ADMIN',
-] as const;
+export function rankSelectOptions(): IntelSelectOption[] {
+  return organizationalRankOptions().map((rank) => ({
+    value: rank.code,
+    label: rank.label,
+  }));
+}
 
 export function roleSelectOptions(): IntelSelectOption[] {
-  return IAM_ROLES.map((role) => ({
-    value: role,
-    label: role.replace(/_/g, ' '),
-  }));
+  return rankSelectOptions();
 }
 
 export function agencySelectOptions(
   agencies: { id: string; name: string; code?: string }[],
 ): IntelSelectOption[] {
-  if (agencies.length === 0) return [{ value: 'CID', label: 'CID' }];
+  if (agencies.length === 0) return [{ value: 'HQ', label: 'Agency Headquarters' }];
   return agencies.map((agency) => ({
     value: agency.code || agency.name,
     label: agency.name,
@@ -32,16 +26,16 @@ export function agencySelectOptions(
 
 const ROLE_STYLES: Record<string, string> = {
   SUPER_ADMIN: 'iam-role--critical',
-  CID_DIRECTOR: 'iam-role--director',
+  DGP: 'iam-role--director',
+  ADGP: 'iam-role--director',
+  IGP: 'iam-role--director',
+  DIG: 'iam-role--dsp',
   SP: 'iam-role--sp',
   DSP: 'iam-role--dsp',
-  INSPECTOR: 'iam-role--inspector',
-  SUB_INSPECTOR: 'iam-role--inspector',
-  ANALYST: 'iam-role--analyst',
-  INTELLIGENCE_OFFICER: 'iam-role--analyst',
-  FORENSICS_OFFICER: 'iam-role--analyst',
-  VIEWER: 'iam-role--viewer',
-  AUDITOR: 'iam-role--viewer',
+  PI: 'iam-role--inspector',
+  PSI: 'iam-role--inspector',
+  HC: 'iam-role--analyst',
+  PC: 'iam-role--viewer',
 };
 
 export function userInitials(user: Pick<IamUser, 'name' | 'username'>): string {
@@ -61,10 +55,22 @@ export function userStatus(user: IamUser): { label: string; className: string } 
   return { label: 'Active', className: 'iam-status--active' };
 }
 
+export function supervisorRolesFromConfig(): Set<string> {
+  const wf = getCachedRbacConfig()?.workflow as { supervisor_ranks?: string[] } | undefined;
+  const ranks = wf?.supervisor_ranks || ['SP', 'DSP', 'PI', 'DIG', 'IGP', 'ADGP', 'DGP'];
+  return new Set([...ranks, 'SUPER_ADMIN']);
+}
+
+export function adminRolesFromConfig(): Set<string> {
+  const wf = getCachedRbacConfig()?.workflow as { admin_ranks?: string[] } | undefined;
+  const ranks = wf?.admin_ranks || ['DGP', 'ADGP'];
+  return new Set([...ranks, 'SUPER_ADMIN']);
+}
+
 export function exportUsersCsv(users: IamUser[]) {
-  const header = 'name,username,email,role,department,designation,active,last_login';
+  const header = 'name,username,email,role,rank_code,department,designation,active,last_login';
   const rows = users.map((u) =>
-    [u.name, u.username, u.email, u.role, u.department, u.designation, u.active, u.last_login || '']
+    [u.name, u.username, u.email, u.role, u.rank_code || u.role, u.department, u.designation, u.active, u.last_login || '']
       .map((v) => `"${String(v).replace(/"/g, '""')}"`)
       .join(','),
   );

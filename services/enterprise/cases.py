@@ -41,6 +41,7 @@ def create_case(*, title: str, description: str, priority: str, created_by: str,
     session = get_session()
     if not session:
         return None
+    out: dict | None = None
     try:
         from services.enterprise.db import _MODELS
 
@@ -58,12 +59,21 @@ def create_case(*, title: str, description: str, priority: str, created_by: str,
         session.commit()
         session.refresh(row)
         log_audit(user_id=created_by, username=username, action="create_case", entity=row.case_number, ip=ip)
-        return _case_out(row)
+        out = _case_out(row)
     except Exception:
         session.rollback()
         return None
     finally:
         session.close()
+
+    if out:
+        try:
+            from services.enterprise.case_assignments import ensure_creator_assignment
+
+            ensure_creator_assignment(out["case_id"], created_by)
+        except Exception:
+            pass
+    return out
 
 
 def list_cases(*, user_id: str | None = None, limit: int = 50) -> list[dict]:
@@ -76,7 +86,13 @@ def list_cases(*, user_id: str | None = None, limit: int = 50) -> list[dict]:
         Case = _MODELS["Case"]
         q = session.query(Case).filter(Case.archived_at.is_(None))
         if user_id:
-            q = q.filter((Case.created_by == user_id) | (Case.assigned_to == user_id))
+            from services.enterprise.case_assignments import list_user_case_ids
+
+            allowed = list_user_case_ids(user_id)
+            if allowed:
+                q = q.filter(Case.case_id.in_(allowed))
+            else:
+                q = q.filter((Case.created_by == user_id) | (Case.assigned_to == user_id))
         rows = q.order_by(Case.created_at.desc()).limit(limit).all()
         return [_case_out(r) for r in rows]
     finally:
@@ -140,6 +156,12 @@ def link_investigation(*, case_id: str, investigation_id: str, started_by: str, 
         )
         session.query(_MODELS["Case"]).filter_by(case_id=case_id).update({"status": "ACTIVE"})
         session.commit()
+        try:
+            from services.copilot import invalidate_copilot_cache
+
+            invalidate_copilot_cache(case_id=case_id, investigation_id=investigation_id)
+        except Exception:
+            pass
     except Exception:
         session.rollback()
     finally:
@@ -189,13 +211,24 @@ def assign_case(
     actor_id: str,
     username: str = "",
     ip: str = "",
+    relationship: str = "investigating_officer",
 ) -> dict | None:
+    from services.enterprise.case_assignments import add_case_assignment
     from services.enterprise.notifications import notify_user
 
     row = update_case(case_id, updates={"assigned_to": assigned_to}, actor_id=actor_id, username=username, ip=ip)
     if row:
+        try:
+            add_case_assignment(
+                case_id,
+                user_id=assigned_to,
+                relationship=relationship,
+                assigned_by=actor_id,
+            )
+        except Exception:
+            pass
         notify_user(user_id=assigned_to, title="Case assigned", body=f"Case {row['case_number']} assigned to you", kind="assignment", case_id=case_id)
-        log_audit(user_id=actor_id, username=username, action="assign_case", entity=row["case_number"], ip=ip, details={"assigned_to": assigned_to})
+        log_audit(user_id=actor_id, username=username, action="assign_case", entity=row["case_number"], ip=ip, details={"assigned_to": assigned_to, "relationship": relationship})
     return row
 
 
@@ -206,13 +239,24 @@ def transfer_case(
     actor_id: str,
     username: str = "",
     ip: str = "",
+    relationship: str = "investigating_officer",
 ) -> dict | None:
+    from services.enterprise.case_assignments import add_case_assignment
     from services.enterprise.notifications import notify_user
 
     row = update_case(case_id, updates={"assigned_to": assigned_to, "status": "ACTIVE"}, actor_id=actor_id, username=username, ip=ip)
     if row:
+        try:
+            add_case_assignment(
+                case_id,
+                user_id=assigned_to,
+                relationship=relationship,
+                assigned_by=actor_id,
+            )
+        except Exception:
+            pass
         notify_user(user_id=assigned_to, title="Case transferred", body=f"Case {row['case_number']} transferred to you", kind="transfer", case_id=case_id)
-        log_audit(user_id=actor_id, username=username, action="transfer_case", entity=row["case_number"], ip=ip, details={"assigned_to": assigned_to})
+        log_audit(user_id=actor_id, username=username, action="transfer_case", entity=row["case_number"], ip=ip, details={"assigned_to": assigned_to, "relationship": relationship})
     return row
 
 
